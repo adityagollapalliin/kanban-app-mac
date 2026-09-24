@@ -72,23 +72,37 @@ public struct TaskRepository {
     /// Trashed cards are excluded unless the query asks about them, so
     /// `is:trashed` works without a separate switch and every other query
     /// stays clean by default.
-    public func tasks(matching source: String, inProject projectID: String) throws -> [BoardTask] {
+    public func tasks(
+        matching source: String,
+        inProject projectID: String,
+        acrossProjects: Bool = false
+    ) throws -> [BoardTask] {
         let filter = try TaskQueryParser.parse(source)
-        let compiler = TaskQueryCompiler(projectID: projectID, now: clock.now)
+        let compiler = TaskQueryCompiler(
+            projectID: projectID,
+            now: clock.now,
+            currentPersonID: try AppSettings(database: database).currentPersonID
+        )
         let compiled = try compiler.compile(filter)
 
         let trashClause = filter.mentionsTrash ? "" : " AND task.trashed = 0"
 
+        // A board defined by a question spans the workspace; every other query
+        // is asked of one project. `projectID` is still passed to the compiler
+        // either way, because `status = "Doing"` has to resolve somewhere.
+        let projectClause = acrossProjects ? "1" : "task.project_id = ?"
+        let leading: [SQLValue] = acrossProjects ? [] : [.text(projectID)]
+
         return try database.query(
             """
             SELECT task.* FROM task
-            WHERE task.project_id = ? AND \(compiled.whereClause)\(trashClause)
+            WHERE \(projectClause) AND \(compiled.whereClause)\(trashClause)
             ORDER BY task.priority DESC,
                      (task.due_date IS NULL),
                      task.due_date,
                      task.updated_at DESC;
             """,
-            [SQLValue.text(projectID)] + compiled.parameters
+            leading + compiled.parameters
         ).map(BoardTask.init(row:))
     }
 
@@ -137,17 +151,22 @@ public struct TaskRepository {
             try database.execute(
                 """
                 INSERT INTO task (id, project_id, status_id, number, type, title, description_md,
-                                  assignee_id, priority, due_date, sort_order, created_at, updated_at,
-                                  completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                                  assignee_id, priority, due_date, sort_order, status_changed_at,
+                                  created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 [
                     id, projectID, statusID, number, type.rawValue, trimmed, descriptionMarkdown,
-                    assigneeID.sqlValue, priority.rawValue, dueDate.sqlValue, position, now, now,
+                    assigneeID.sqlValue, priority.rawValue, dueDate.sqlValue, position, now, now, now,
                     // A task created straight into a done column is already done.
                     try isComplete(statusID: statusID) ? now.sqlValue : SQLValue.null,
                 ]
             )
+
+            // The opening entry of the card's history. Without it the first
+            // move would look like the card's whole life, and every chart
+            // drawn from the history would start a step late.
+            try recordStatusChange(taskID: id, from: nil, to: statusID, at: now)
             return try task(id: id)
         }
     }
@@ -219,13 +238,28 @@ public struct TaskRepository {
                 ? (moving.completedAt ?? now).sqlValue
                 : .null
 
+            // Reordering within a column is not a status change. Only a real
+            // crossing restarts the column clock and earns a history row —
+            // otherwise dragging a card up its own column would reset how long
+            // it has been stuck there, which is exactly the thing the dots are
+            // meant to make visible.
+            let changedColumn = moving.statusID != statusID
+            let columnSince: SQLValue = changedColumn
+                ? now.sqlValue
+                : (moving.statusChangedAt ?? moving.createdAt).sqlValue
+
             try database.execute(
                 """
-                UPDATE task SET status_id = ?, sort_order = ?, updated_at = ?, completed_at = ?
+                UPDATE task SET status_id = ?, sort_order = ?, updated_at = ?, completed_at = ?,
+                                status_changed_at = ?
                 WHERE id = ?;
                 """,
-                [statusID, SortOrder.between(lower, upper), now, completedAt, taskID]
+                [statusID, SortOrder.between(lower, upper), now, completedAt, columnSince, taskID]
             )
+
+            if changedColumn {
+                try recordStatusChange(taskID: taskID, from: moving.statusID, to: statusID, at: now)
+            }
             return try task(id: taskID)
         }
     }
@@ -284,6 +318,50 @@ public struct TaskRepository {
     /// back with its history, its number and its place intact.
     public func setTrashed(_ trashed: Bool, for taskID: String) throws {
         try update(taskID, "trashed = ?", [trashed])
+    }
+
+    /// Marks a card as blocked, with the reason in the user's own words.
+    ///
+    /// Separate from priority on purpose: priority is how much the work
+    /// matters, a flag is what is standing in its way. A card can be both
+    /// low-priority and blocked, and conflating them loses one of them.
+    public func setFlag(_ flagged: Bool, reason: String = "", for taskID: String) throws {
+        // Unflagging clears the reason. A stale explanation attached to a card
+        // that is no longer blocked is worse than none.
+        let text = flagged ? reason.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        try update(taskID, "flagged = ?, flag_reason = ?", [flagged, text])
+    }
+
+    public func setEstimate(_ estimate: Double?, for taskID: String) throws {
+        try update(taskID, "estimate = ?", [estimate.sqlValue])
+    }
+
+    public func setVersion(_ versionID: String?, for taskID: String) throws {
+        try update(taskID, "version_id = ?", [versionID.sqlValue])
+    }
+
+    public func setStartDate(_ start: Date?, for taskID: String) throws {
+        try update(taskID, "start_date = ?", [start.sqlValue])
+    }
+
+    // MARK: - History
+
+    /// Appends one entry to a card's journey. Caller holds the transaction.
+    func recordStatusChange(taskID: String, from: String?, to: String, at moment: Date) throws {
+        try database.execute(
+            """
+            INSERT INTO status_change (id, task_id, from_status_id, to_status_id, at)
+            VALUES (?, ?, ?, ?, ?);
+            """,
+            [UUID().uuidString, taskID, from.sqlValue, to, moment]
+        )
+    }
+
+    /// A card's moves, oldest first.
+    public func history(ofTask taskID: String) throws -> [StatusChange] {
+        try database.query(
+            "SELECT * FROM status_change WHERE task_id = ? ORDER BY at;", [taskID]
+        ).map(StatusChange.init(row:))
     }
 
     /// One field, plus the `updated_at` stamp every edit owes.

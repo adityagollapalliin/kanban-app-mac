@@ -55,7 +55,7 @@ struct MigrationTests {
 
         try database.migrate(using: Migration.all)
 
-        #expect(try database.userVersion == 2)
+        #expect(try database.userVersion == Migration.latestVersion)
         #expect(try database.count("SELECT COUNT(*) FROM saved_view;") == 0)
         #expect(try database.count("SELECT COUNT(*) FROM task;") == 1)
 
@@ -63,6 +63,56 @@ struct MigrationTests {
         try SavedViewRepository(database: database)
             .create(inProject: ids.project, name: "Open", query: "is:open")
         #expect(try database.count("SELECT COUNT(*) FROM saved_view;") == 1)
+    }
+
+    /// v3 is the one migration that backfills rather than only adding tables,
+    /// so the test is about what the existing rows became, not about the
+    /// shape of the schema.
+    @Test("v2 upgrades to v3 and gives the existing rows a past")
+    func upgradeToJiraBoard() throws {
+        let database = try Database(location: .memory)
+        let ladder = Migration.all.filter { $0.version <= 2 }
+        try database.migrate(using: ladder)
+
+        let ids = try database.seedMinimalProject()
+        try database.insertTask(project: ids.project, status: ids.status, number: 1, title: "Older than v3")
+        try database.execute(
+            "INSERT INTO board (id, project_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?);",
+            ["board-1", ids.project, "Board", 1000.0, Date()]
+        )
+        try database.execute(
+            "INSERT INTO board_column (id, board_id, status_id, name, sort_order) VALUES (?, ?, ?, ?, ?);",
+            ["column-1", "board-1", ids.status, "To Do", 1000.0]
+        )
+
+        try database.migrate(using: Migration.all)
+
+        #expect(try database.userVersion == Migration.latestVersion)
+        #expect(try database.count("SELECT COUNT(*) FROM task;") == 1)
+
+        // The column always showed exactly one status; v3 writes that down.
+        #expect(try database.count(
+            "SELECT COUNT(*) FROM column_status WHERE column_id = 'column-1' AND status_id = ?;",
+            [ids.status]
+        ) == 1)
+
+        // A card that predates the history table is given an opening entry at
+        // its creation, so a chart drawn tomorrow covers its whole life.
+        #expect(try database.count("SELECT COUNT(*) FROM status_change;") == 1)
+        let opening = try #require(try database.queryOne("SELECT * FROM status_change;"))
+        #expect(opening.string("from_status_id") == nil)
+        #expect(opening.string("to_status_id") == ids.status)
+
+        // And a card that has never moved has been where it is since it was made.
+        let task = try #require(try database.queryOne("SELECT * FROM task;"))
+        #expect(task.date("status_changed_at") == task.date("created_at"))
+        #expect(task.bool("flagged") == false)
+
+        // The board gains the lane and the filters every board has.
+        #expect(try database.count(
+            "SELECT COUNT(*) FROM swimlane WHERE board_id = 'board-1' AND pinned = 1;"
+        ) == 1)
+        #expect(try database.count("SELECT COUNT(*) FROM quick_filter WHERE board_id = 'board-1';") == 4)
     }
 
     /// Guards against an older build silently mangling a newer file.

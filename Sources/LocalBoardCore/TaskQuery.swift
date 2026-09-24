@@ -42,10 +42,27 @@ extension TaskFilter {
 public enum QueryField: String, Sendable, CaseIterable {
     case due, start, created, updated, completed
     case priority, type, status, title, assignee, label
+    /// The printed tag: `key = WORK-14`, or just `key = 14` within a project.
+    case key
+    case version, epic
+    /// The estimate, under the name teams actually say out loud.
+    case points
+    /// How long the card has sat in its current column: `days >= 5`.
+    case days
+    /// The reason written on a flag: `flag = "waiting on legal"`.
+    case flag
 
     var isDate: Bool {
         switch self {
         case .due, .start, .created, .updated, .completed: true
+        default: false
+        }
+    }
+
+    /// Fields compared as plain numbers rather than as dates or vocabularies.
+    var isNumeric: Bool {
+        switch self {
+        case .points, .days: true
         default: false
         }
     }
@@ -60,12 +77,20 @@ public enum QueryValue: Sendable, Equatable {
     case priority(Priority)
     case type(TaskType)
     case text(String)
+    case number(Double)
     /// `due = none` — the field is not set.
     case none
 }
 
 public enum QueryFlag: String, Sendable, CaseIterable {
     case done, open, overdue, trashed, assigned, unassigned, subtask, labelled
+    /// Blocked or impeded. The one thing a board most needs to be able to ask.
+    case flagged
+    /// Assigned to whoever this copy of the app belongs to. Resolved against
+    /// the person chosen in Settings, so a saved view reading `is:mine` means
+    /// something different — and correct — on each Mac it is opened on.
+    case mine
+    case epic, released, backlog
 }
 
 /// A date the user can write: an exact day, or one relative to today.
@@ -350,7 +375,13 @@ public enum TaskQueryParser {
                 }
                 return .type(type)
 
-            case .status, .title, .assignee, .label:
+            case .points, .days:
+                guard let amount = Double(raw) else {
+                    throw QueryError("`\(raw)` is not a number. Try `\(field.rawValue) >= 3`.")
+                }
+                return .number(amount)
+
+            case .status, .title, .assignee, .label, .key, .version, .epic, .flag:
                 return .text(raw)
 
             default:

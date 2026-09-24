@@ -63,6 +63,7 @@ extension BoardRepository {
                 "INSERT INTO board (id, project_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?);",
                 [boardID, projectID, "Board", SortOrder.step, now]
             )
+            try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
 
             for (index, starter) in [("To Do", StatusCategory.toDo), ("In Progress", .inProgress), ("Done", .done)].enumerated() {
                 try insertColumn(
@@ -125,15 +126,22 @@ extension BoardRepository {
                 [boardID, projectID, trimmed, SortOrder.between(last, nil), now]
             )
 
+            try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
+
             // A new board over an existing project shows the columns that
             // project already has; a board with none would show nothing.
             for status in try statuses(inProject: projectID) {
+                let columnID = UUID().uuidString
                 try database.execute(
                     """
                     INSERT INTO board_column (id, board_id, status_id, name, sort_order)
                     VALUES (?, ?, ?, ?, ?);
                     """,
-                    [UUID().uuidString, boardID, status.id, status.name, status.sortOrder]
+                    [columnID, boardID, status.id, status.name, status.sortOrder]
+                )
+                try database.execute(
+                    "INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?);",
+                    [columnID, status.id, SortOrder.step]
                 )
             }
 
@@ -224,7 +232,137 @@ extension BoardRepository {
             "INSERT INTO board_column (id, board_id, status_id, name, sort_order) VALUES (?, ?, ?, ?, ?);",
             [columnID, boardID, statusID, name, position]
         )
+        // The mapping row is what the board actually reads. `status_id` on the
+        // column stays as the drop target; this is the set of statuses the
+        // column gathers, which for a brand-new column is just the one.
+        try database.execute(
+            "INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?);",
+            [columnID, statusID, SortOrder.step]
+        )
         return columnID
+    }
+
+    // MARK: - Statuses under one column
+
+    /// Folds a status into a column, so two statuses share one heading.
+    ///
+    /// This is the point of separating columns from statuses: "In Review" and
+    /// "In Progress" can be one "Doing" column for the team that works that
+    /// way and two for the team that does not, from the same project.
+    ///
+    /// If the status currently has a column of its own on this board, that
+    /// column is removed — not the status, and not its cards. Merging two
+    /// columns is exactly what the user asked for, and leaving the old heading
+    /// behind showing nothing would be a leftover rather than a result.
+    public func mapStatus(_ statusID: String, toColumn columnID: String) throws {
+        try database.transaction {
+            guard let columnRow = try database.queryOne(
+                "SELECT * FROM board_column WHERE id = ?;", [columnID]
+            ) else {
+                throw LocalBoardError.notFound(entity: "column \(columnID)")
+            }
+            let column = try BoardColumn(row: columnRow)
+
+            guard column.statusID != statusID else { return }
+
+            // The status's own column on this board, if it has one.
+            let existing = try database.query(
+                """
+                SELECT board_column.id AS id, board_column.status_id AS status_id
+                FROM column_status
+                JOIN board_column ON board_column.id = column_status.column_id
+                WHERE board_column.board_id = ? AND column_status.status_id = ?
+                  AND column_status.column_id != ?;
+                """,
+                [column.boardID, statusID, columnID]
+            )
+
+            for row in existing {
+                let otherID = try row.requiredString("id")
+                // Only a column whose *own* status this is can be dissolved.
+                // A column gathering it alongside others is a deliberate
+                // arrangement somebody made, and taking it apart is not what
+                // was asked for.
+                guard row.string("status_id") == statusID else {
+                    throw LocalBoardError.invalidInput(
+                        field: "status",
+                        detail: "That status is already gathered by another column on this board."
+                    )
+                }
+                try database.execute("DELETE FROM board_column WHERE id = ?;", [otherID])
+            }
+
+            let last = try database.queryOne(
+                "SELECT MAX(sort_order) AS last FROM column_status WHERE column_id = ?;", [columnID]
+            )?.double("last")
+
+            try database.execute(
+                """
+                INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?)
+                ON CONFLICT (column_id, status_id) DO NOTHING;
+                """,
+                [columnID, statusID, SortOrder.between(last, nil)]
+            )
+        }
+    }
+
+    /// Splits a status back out of a column, giving it a column of its own.
+    ///
+    /// The new column goes on the end rather than nowhere: a status with no
+    /// column on this board would take its cards off the board with it, and
+    /// unmerging is meant to undo a merge, not to hide work.
+    ///
+    /// A column's own status cannot be split off — that would leave the column
+    /// with nowhere for a drop to land, and the thing being asked for is
+    /// really "delete this column".
+    public func unmapStatus(_ statusID: String, fromColumn columnID: String) throws {
+        try database.transaction {
+            guard let columnRow = try database.queryOne(
+                "SELECT * FROM board_column WHERE id = ?;", [columnID]
+            ) else {
+                throw LocalBoardError.notFound(entity: "column \(columnID)")
+            }
+            let column = try BoardColumn(row: columnRow)
+
+            guard column.statusID != statusID else {
+                throw LocalBoardError.invalidInput(
+                    field: "status",
+                    detail: "\(column.name) is where cards dropped here land. Delete the column instead."
+                )
+            }
+
+            guard let statusRow = try database.queryOne(
+                "SELECT * FROM status WHERE id = ?;", [statusID]
+            ) else {
+                throw LocalBoardError.notFound(entity: "status \(statusID)")
+            }
+            let status = try Status(row: statusRow)
+
+            try database.execute(
+                "DELETE FROM column_status WHERE column_id = ? AND status_id = ?;", [columnID, statusID]
+            )
+
+            let last = try database.queryOne(
+                "SELECT MAX(sort_order) AS last FROM board_column WHERE board_id = ?;", [column.boardID]
+            )?.double("last")
+            let newColumnID = UUID().uuidString
+
+            try database.execute(
+                "INSERT INTO board_column (id, board_id, status_id, name, sort_order) VALUES (?, ?, ?, ?, ?);",
+                [newColumnID, column.boardID, statusID, status.name, SortOrder.between(last, nil)]
+            )
+            try database.execute(
+                "INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?);",
+                [newColumnID, statusID, SortOrder.step]
+            )
+        }
+    }
+
+    /// Every status this column gathers, the drop target first.
+    public func mappedStatusIDs(ofColumn columnID: String) throws -> [String] {
+        try database.query(
+            "SELECT status_id FROM column_status WHERE column_id = ? ORDER BY sort_order;", [columnID]
+        ).compactMap { $0.string("status_id") }
     }
 
     /// Renames both halves. The column's name is what is drawn; the status's
@@ -257,6 +395,55 @@ extension BoardRepository {
             "UPDATE board_column SET wip_limit = ? WHERE id = ?;", [limit.sqlValue, columnID]
         )
         guard changed > 0 else { throw LocalBoardError.notFound(entity: "column \(columnID)") }
+    }
+
+    /// The floor. A column below it is starved rather than overloaded, which
+    /// on a pull-based board is the signal to go and find work for it.
+    public func setWIPMinimum(_ minimum: Int?, for columnID: String) throws {
+        if let minimum, minimum < 0 {
+            throw LocalBoardError.invalidInput(
+                field: "minimum", detail: "A minimum cannot be negative."
+            )
+        }
+        let changed = try database.execute(
+            "UPDATE board_column SET wip_minimum = ? WHERE id = ?;", [minimum.sqlValue, columnID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "column \(columnID)") }
+    }
+
+    public func setWIPMeasure(_ measure: WIPMeasure, for columnID: String) throws {
+        let changed = try database.execute(
+            "UPDATE board_column SET wip_measure = ? WHERE id = ?;", [measure.rawValue, columnID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "column \(columnID)") }
+    }
+
+    /// Marks a column as the backlog. Its cards leave the board proper and
+    /// appear on the backlog screen instead; dragging one back onto the board
+    /// is the commitment point, and only then does it count against WIP.
+    public func setBacklog(_ isBacklog: Bool, for columnID: String) throws {
+        try database.transaction {
+            guard let row = try database.queryOne(
+                "SELECT * FROM board_column WHERE id = ?;", [columnID]
+            ) else {
+                throw LocalBoardError.notFound(entity: "column \(columnID)")
+            }
+            let column = try BoardColumn(row: row)
+
+            // One backlog per board: two would each claim to be the place work
+            // waits, and the commitment point would stop meaning anything.
+            if isBacklog {
+                try database.execute(
+                    "UPDATE board_column SET is_backlog = 0 WHERE board_id = ?;", [column.boardID]
+                )
+                try database.execute(
+                    "UPDATE board SET backlog_enabled = 1 WHERE id = ?;", [column.boardID]
+                )
+            }
+            try database.execute(
+                "UPDATE board_column SET is_backlog = ? WHERE id = ?;", [isBacklog, columnID]
+            )
+        }
     }
 
     public func setCategory(_ category: StatusCategory, for columnID: String) throws {

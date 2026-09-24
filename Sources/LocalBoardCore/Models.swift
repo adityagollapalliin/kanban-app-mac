@@ -82,12 +82,52 @@ public struct Board: Sendable, Equatable, Identifiable, Codable {
     public var sortOrder: Double
     public var createdAt: Date
 
-    public init(id: String, projectID: String, name: String, sortOrder: Double, createdAt: Date) {
+    /// How the board is cut into lanes.
+    public var swimlaneMode: SwimlaneMode
+    /// The extra rows shown on every card, at most three.
+    public var cardFields: [CardField]
+    public var colorRule: CardColorRule
+    /// Which saved view colours the cards, when `colorRule` is `.query`.
+    public var colorViewID: String?
+    /// How long a card may sit in one column before the board says so.
+    public var staleDays: Int
+    public var backlogEnabled: Bool
+    /// A board defined by a question instead of by its project. Empty for the
+    /// ordinary kind; anything else and the board gathers whatever matches,
+    /// wherever it lives.
+    public var filterQuery: String
+
+    /// Whether this board's cards come from a query rather than one project.
+    public var isQueryBoard: Bool {
+        !filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        sortOrder: Double,
+        createdAt: Date,
+        swimlaneMode: SwimlaneMode = .none,
+        cardFields: [CardField] = [.dueDate, .labels],
+        colorRule: CardColorRule = .none,
+        colorViewID: String? = nil,
+        staleDays: Int = 3,
+        backlogEnabled: Bool = false,
+        filterQuery: String = ""
+    ) {
         self.id = id
         self.projectID = projectID
         self.name = name
         self.sortOrder = sortOrder
         self.createdAt = createdAt
+        self.swimlaneMode = swimlaneMode
+        self.cardFields = cardFields
+        self.colorRule = colorRule
+        self.colorViewID = colorViewID
+        self.staleDays = staleDays
+        self.backlogEnabled = backlogEnabled
+        self.filterQuery = filterQuery
     }
 }
 
@@ -102,6 +142,14 @@ public struct BoardColumn: Sendable, Equatable, Identifiable, Codable {
     /// `nil` means no limit. Exceeding it is surfaced, never enforced — the
     /// board reports what is true rather than refusing the drop.
     public var wipLimit: Int?
+    /// A floor as well as a ceiling. An empty column on a pull-based board is
+    /// as much a signal as a full one, and only a minimum can say so.
+    public var wipMinimum: Int?
+    /// Whether the limits count cards or add up estimates.
+    public var wipMeasure: WIPMeasure
+    /// A backlog column sits off the board proper: its cards are shown on the
+    /// backlog screen and do not count against anything.
+    public var isBacklog: Bool
     public var sortOrder: Double
 
     public init(
@@ -110,6 +158,9 @@ public struct BoardColumn: Sendable, Equatable, Identifiable, Codable {
         statusID: String,
         name: String,
         wipLimit: Int? = nil,
+        wipMinimum: Int? = nil,
+        wipMeasure: WIPMeasure = .cardCount,
+        isBacklog: Bool = false,
         sortOrder: Double
     ) {
         self.id = id
@@ -117,7 +168,23 @@ public struct BoardColumn: Sendable, Equatable, Identifiable, Codable {
         self.statusID = statusID
         self.name = name
         self.wipLimit = wipLimit
+        self.wipMinimum = wipMinimum
+        self.wipMeasure = wipMeasure
+        self.isBacklog = isBacklog
         self.sortOrder = sortOrder
+    }
+
+    /// Where a measured amount sits against the limits.
+    ///
+    /// `approaching` is the last slot before the ceiling, so a column of four
+    /// with a limit of five warns while there is still something to be done
+    /// about it rather than only once it is too late.
+    public func state(for amount: Double) -> WIPState {
+        if let minimum = wipMinimum, amount < Double(minimum) { return .belowMinimum }
+        guard let limit = wipLimit else { return .fine }
+        if amount > Double(limit) { return .breached }
+        if amount >= Double(limit) { return .approaching }
+        return .fine
     }
 }
 
@@ -193,9 +260,25 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     public var sortOrder: Double
     /// Trashed tasks stay on disk and stay out of every board query.
     public var trashed: Bool
+    /// Blocked, impeded, waiting on someone. Distinct from priority: a flag is
+    /// about what is in the way, not about what matters most.
+    public var flagged: Bool
+    public var flagReason: String
+    /// When the card last entered the column it is in. The card's own copy of
+    /// what `status_change` records, so days-in-column costs no join.
+    public var statusChangedAt: Date?
+    public var versionID: String?
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
+
+    /// Whole days the card has sat where it is.
+    public func daysInColumn(now: Date, calendar: Calendar = .current) -> Int {
+        guard let since = statusChangedAt else { return 0 }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: since),
+                                           to: calendar.startOfDay(for: now)).day ?? 0
+        return max(0, days)
+    }
 
     public init(
         id: String,
@@ -214,6 +297,10 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         estimate: Double? = nil,
         sortOrder: Double,
         trashed: Bool = false,
+        flagged: Bool = false,
+        flagReason: String = "",
+        statusChangedAt: Date? = nil,
+        versionID: String? = nil,
         createdAt: Date,
         updatedAt: Date,
         completedAt: Date? = nil
@@ -234,6 +321,10 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.estimate = estimate
         self.sortOrder = sortOrder
         self.trashed = trashed
+        self.flagged = flagged
+        self.flagReason = flagReason
+        self.statusChangedAt = statusChangedAt
+        self.versionID = versionID
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt
@@ -282,4 +373,128 @@ public struct ChecklistProgress: Sendable, Equatable, Codable {
 
     public var isComplete: Bool { total > 0 && done == total }
     public var fraction: Double { total == 0 ? 0 : Double(done) / Double(total) }
+}
+
+/// A release: a name to ship work under, and a date to ship it on.
+public struct Version: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var name: String
+    public var descriptionMarkdown: String
+    public var releaseDate: Date?
+    /// Released versions stay: a shipped release is a record, not a to-do.
+    public var released: Bool
+    public var sortOrder: Double
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        descriptionMarkdown: String = "",
+        releaseDate: Date? = nil,
+        released: Bool = false,
+        sortOrder: Double,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.name = name
+        self.descriptionMarkdown = descriptionMarkdown
+        self.releaseDate = releaseDate
+        self.released = released
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+}
+
+/// A horizontal lane defined by a query.
+///
+/// Pinned lanes are matched before the board's grouping is applied, which is
+/// how "Expedite" stays at the top whether the board is grouped by epic, by
+/// assignee or not at all.
+public struct Swimlane: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var boardID: String
+    public var name: String
+    public var query: String
+    public var pinned: Bool
+    public var sortOrder: Double
+
+    public init(
+        id: String,
+        boardID: String,
+        name: String,
+        query: String,
+        pinned: Bool = false,
+        sortOrder: Double
+    ) {
+        self.id = id
+        self.boardID = boardID
+        self.name = name
+        self.query = query
+        self.pinned = pinned
+        self.sortOrder = sortOrder
+    }
+}
+
+/// A toggle above the board, backed by a query. Several on at once mean all of
+/// them, so they narrow rather than compete.
+public struct QuickFilter: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var boardID: String
+    public var name: String
+    public var query: String
+    public var sortOrder: Double
+
+    public init(id: String, boardID: String, name: String, query: String, sortOrder: Double) {
+        self.id = id
+        self.boardID = boardID
+        self.name = name
+        self.query = query
+        self.sortOrder = sortOrder
+    }
+}
+
+/// One entry in a card's journey across the board.
+///
+/// Append-only. This is the only record of *when* work moved, and every
+/// number the analytics screen shows is derived from it — which is why
+/// nothing edits or deletes these rows.
+public struct StatusChange: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var taskID: String
+    /// `nil` for the entry a card is created with.
+    public var fromStatusID: String?
+    public var toStatusID: String
+    public var at: Date
+
+    public init(id: String, taskID: String, fromStatusID: String?, toStatusID: String, at: Date) {
+        self.id = id
+        self.taskID = taskID
+        self.fromStatusID = fromStatusID
+        self.toStatusID = toStatusID
+        self.at = at
+    }
+}
+
+/// A project's link to a folder on this Mac.
+///
+/// The bookmark is the sandbox's record that the user once chose this folder;
+/// without it the path is just a string the app is not allowed to open. Read
+/// only, local only, and absent unless someone asked for it.
+public struct RepositoryLink: Sendable, Equatable, Identifiable, Codable {
+    public var projectID: String
+    public var path: String
+    public var bookmark: Data?
+    public var linkedAt: Date
+
+    public var id: String { projectID }
+
+    public init(projectID: String, path: String, bookmark: Data?, linkedAt: Date) {
+        self.projectID = projectID
+        self.path = path
+        self.bookmark = bookmark
+        self.linkedAt = linkedAt
+    }
 }

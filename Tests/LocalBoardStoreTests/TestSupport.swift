@@ -114,9 +114,14 @@ extension Database {
                 "INSERT INTO status (id, project_id, name, category, sort_order) VALUES (?, ?, ?, ?, ?);",
                 [statusID, projectID, starter.0, starter.1, position]
             )
+            let columnID = UUID().uuidString
             try execute(
                 "INSERT INTO board_column (id, board_id, status_id, name, sort_order) VALUES (?, ?, ?, ?, ?);",
-                [UUID().uuidString, boardID, statusID, starter.0, position]
+                [columnID, boardID, statusID, starter.0, position]
+            )
+            try execute(
+                "INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?);",
+                [columnID, statusID, 1_000.0]
             )
             ids.append(statusID)
         }

@@ -9,6 +9,11 @@ public struct BoardSnapshot: Sendable, Equatable, Identifiable {
     public let board: Board
     public let columns: [LoadedColumn]
 
+    /// The column cards wait in before anyone has committed to them. Kept out
+    /// of `columns` so the board proper shows work in flight and nothing else;
+    /// it has its own screen.
+    public let backlog: LoadedColumn?
+
     /// What each card carries, keyed by card id. Gathered in one query each
     /// rather than per card, so a board of two hundred cards costs the same
     /// handful of statements as a board of two.
@@ -22,37 +27,64 @@ public struct BoardSnapshot: Sendable, Equatable, Identifiable {
     public init(
         board: Board,
         columns: [LoadedColumn],
+        backlog: LoadedColumn? = nil,
         labels: [String: [CardLabel]] = [:],
         checklists: [String: ChecklistProgress] = [:],
         subtasks: [String: ChecklistProgress] = [:]
     ) {
         self.board = board
         self.columns = columns
+        self.backlog = backlog
         self.labels = labels
         self.checklists = checklists
         self.subtasks = subtasks
     }
 }
 
-/// One column with the status behind it and the cards in it.
+/// One column, the statuses it gathers, and the cards standing in them.
+///
+/// A column is not a status. It shows *several*, which is what lets "In
+/// Review" and "In Progress" share one heading on a board that thinks of them
+/// as one step and stand apart on a board that does not — from the same data,
+/// without either board rewriting the other's.
 public struct LoadedColumn: Sendable, Equatable, Identifiable {
     public let column: BoardColumn
+    /// Where a card dropped on this column lands. One of `statuses`.
     public let status: Status
+    /// Everything the column gathers, the drop target first.
+    public let statuses: [Status]
     public let tasks: [BoardTask]
 
     public var id: String { column.id }
     public var name: String { column.name }
 
-    /// Reported, never enforced. The board says the limit is exceeded; it does
-    /// not refuse the drop that exceeded it.
-    public var isOverWIPLimit: Bool {
-        guard let limit = column.wipLimit else { return false }
-        return tasks.count > limit
+    /// What the column's limit is counting: cards, or the points on them.
+    ///
+    /// Unestimated cards contribute nothing to a points measure. That is a
+    /// real hole rather than a rounding choice, and the header says so by
+    /// showing the count alongside.
+    public var wipAmount: Double {
+        switch column.wipMeasure {
+        case .cardCount: Double(tasks.count)
+        case .estimate: tasks.reduce(0) { $0 + ($1.estimate ?? 0) }
+        }
     }
 
-    public init(column: BoardColumn, status: Status, tasks: [BoardTask]) {
+    public var wipState: WIPState { column.state(for: wipAmount) }
+
+    /// Reported, never enforced. The board says the limit is exceeded; it does
+    /// not refuse the drop that exceeded it.
+    public var isOverWIPLimit: Bool { wipState == .breached }
+
+    /// How many cards carry no estimate, when points are what is being counted.
+    public var unestimatedCount: Int {
+        column.wipMeasure == .estimate ? tasks.count { $0.estimate == nil } : 0
+    }
+
+    public init(column: BoardColumn, status: Status, statuses: [Status] = [], tasks: [BoardTask]) {
         self.column = column
         self.status = status
+        self.statuses = statuses.isEmpty ? [status] : statuses
         self.tasks = tasks
     }
 }
@@ -98,89 +130,158 @@ public struct BoardRepository {
     // MARK: - The board
 
     /// Everything one board needs, in a handful of queries rather than one per
-    /// column: the columns come back in a single join, the cards in a single
-    /// pass over the project's tasks, grouped in memory.
+    /// column: the columns and their statuses come back in one join, the cards
+    /// in a single pass, grouped in memory.
     public func snapshot(boardID: String, includeTrashed: Bool = false) throws -> BoardSnapshot {
         guard let boardRow = try database.queryOne("SELECT * FROM board WHERE id = ?;", [boardID]) else {
             throw LocalBoardError.notFound(entity: "board \(boardID)")
         }
         let board = try Board(row: boardRow)
 
-        // The column carries its own name and the status carries the category,
-        // so both are aliased out of one join rather than fetched separately.
-        let columnRows = try database.query(
-            """
-            SELECT board_column.id          AS column_id,
-                   board_column.board_id    AS board_id,
-                   board_column.status_id   AS status_id,
-                   board_column.name        AS column_name,
-                   board_column.wip_limit   AS wip_limit,
-                   board_column.sort_order  AS column_sort_order,
-                   status.project_id        AS status_project_id,
-                   status.name              AS status_name,
-                   status.category          AS status_category,
-                   status.sort_order        AS status_sort_order
-            FROM board_column
-            JOIN status ON status.id = board_column.status_id
-            WHERE board_column.board_id = ?
-            ORDER BY board_column.sort_order;
-            """,
-            [boardID]
-        )
+        let columns = try loadColumns(boardID: boardID)
 
-        let tasksByStatus = try tasksGroupedByStatus(
-            projectID: board.projectID,
-            includeTrashed: includeTrashed
-        )
+        let tasks = try board.isQueryBoard
+            ? tasksMatchingBoardQuery(board)
+            : allTasks(projectID: board.projectID, includeTrashed: includeTrashed)
 
-        let columns = try columnRows.map { row -> LoadedColumn in
-            let statusID = try row.requiredString("status_id")
-            let column = BoardColumn(
-                id: try row.requiredString("column_id"),
-                boardID: try row.requiredString("board_id"),
-                statusID: statusID,
-                name: try row.requiredString("column_name"),
-                wipLimit: row.int("wip_limit").map(Int.init),
-                sortOrder: try row.requiredDouble("column_sort_order")
-            )
-            let status = Status(
-                id: statusID,
-                projectID: try row.requiredString("status_project_id"),
-                name: try row.requiredString("status_name"),
-                category: try row.requiredEnum("status_category", StatusCategory.self),
-                sortOrder: try row.requiredDouble("status_sort_order")
-            )
-            return LoadedColumn(column: column, status: status, tasks: tasksByStatus[statusID] ?? [])
+        // Which column a card belongs to. A card whose status this board does
+        // not show has nowhere to go and is left off rather than guessed at —
+        // except on a query board, where cards arrive from other projects and
+        // the shared vocabulary is the category rather than the status itself.
+        var columnForStatus: [String: Int] = [:]
+        for (index, column) in columns.enumerated() {
+            for status in column.statuses { columnForStatus[status.id] = index }
+        }
+        var firstColumnOfCategory: [StatusCategory: Int] = [:]
+        for (index, column) in columns.enumerated() where firstColumnOfCategory[column.status.category] == nil {
+            firstColumnOfCategory[column.status.category] = index
         }
 
+        let categoryOfStatus = try statusCategories()
+        var grouped: [Int: [BoardTask]] = [:]
+        for task in tasks {
+            let index: Int?
+            if let mapped = columnForStatus[task.statusID] {
+                index = mapped
+            } else if board.isQueryBoard, let category = categoryOfStatus[task.statusID] {
+                index = firstColumnOfCategory[category]
+            } else {
+                index = nil
+            }
+            guard let index else { continue }
+            grouped[index, default: []].append(task)
+        }
+
+        let filled = columns.enumerated().map { index, column in
+            LoadedColumn(
+                column: column.column,
+                status: column.status,
+                statuses: column.statuses,
+                // Sparse ordering is per column, and a column now gathers
+                // several; sorting here is what keeps two statuses under one
+                // heading from interleaving by accident.
+                tasks: (grouped[index] ?? []).sorted { $0.sortOrder < $1.sortOrder }
+            )
+        }
+
+        let projectID = board.projectID
         return BoardSnapshot(
             board: board,
-            columns: columns,
-            labels: try LabelRepository(database: database).labelsByTask(inProject: board.projectID),
-            checklists: try ChecklistRepository(database: database).progressByTask(inProject: board.projectID),
-            subtasks: try TaskRepository(database: database).subtaskProgress(inProject: board.projectID)
+            columns: filled.filter { !$0.column.isBacklog },
+            backlog: filled.first { $0.column.isBacklog },
+            labels: try LabelRepository(database: database).labelsByTask(inProject: projectID),
+            checklists: try ChecklistRepository(database: database).progressByTask(inProject: projectID),
+            subtasks: try TaskRepository(database: database).subtaskProgress(inProject: projectID)
         )
     }
 
-    /// One query for the whole project's cards, grouped by status. A board with
-    /// nine columns costs the same as a board with one.
-    private func tasksGroupedByStatus(
-        projectID: String,
-        includeTrashed: Bool
-    ) throws -> [String: [BoardTask]] {
-        var grouped: [String: [BoardTask]] = [:]
+    /// The board's columns with every status each one gathers.
+    ///
+    /// Two queries rather than one join, because a column with three statuses
+    /// would otherwise come back three times and have to be de-duplicated in
+    /// exactly the order the join happened to produce.
+    private func loadColumns(boardID: String) throws -> [LoadedColumn] {
+        let columnRows = try database.query(
+            "SELECT * FROM board_column WHERE board_id = ? ORDER BY sort_order;", [boardID]
+        )
+        guard !columnRows.isEmpty else { return [] }
+
+        var statusesByColumn: [String: [Status]] = [:]
         try database.forEachRow(
+            """
+            SELECT column_status.column_id AS column_id, status.*
+            FROM column_status
+            JOIN status ON status.id = column_status.status_id
+            JOIN board_column ON board_column.id = column_status.column_id
+            WHERE board_column.board_id = ?
+            ORDER BY column_status.sort_order;
+            """,
+            [boardID]
+        ) { row in
+            statusesByColumn[try row.requiredString("column_id"), default: []].append(try Status(row: row))
+        }
+
+        return try columnRows.map { row in
+            let column = try BoardColumn(row: row)
+            var statuses = statusesByColumn[column.id] ?? []
+
+            // The drop target leads, whatever order the mapping is in: it is
+            // the column's own status, and the header names it first.
+            if let targetIndex = statuses.firstIndex(where: { $0.id == column.statusID }), targetIndex != 0 {
+                statuses.insert(statuses.remove(at: targetIndex), at: 0)
+            }
+
+            guard let target = statuses.first else {
+                // A column with no mapping row at all predates v3 and was
+                // missed by the backfill. Read its own status directly rather
+                // than dropping the column and the cards standing in it.
+                guard let statusRow = try database.queryOne(
+                    "SELECT * FROM status WHERE id = ?;", [column.statusID]
+                ) else {
+                    throw LocalBoardError.notFound(entity: "status \(column.statusID)")
+                }
+                let status = try Status(row: statusRow)
+                return LoadedColumn(column: column, status: status, statuses: [status], tasks: [])
+            }
+
+            return LoadedColumn(column: column, status: target, statuses: statuses, tasks: [])
+        }
+    }
+
+    private func statusCategories() throws -> [String: StatusCategory] {
+        var categories: [String: StatusCategory] = [:]
+        try database.forEachRow("SELECT id, category FROM status;") { row in
+            categories[try row.requiredString("id")] = try row.requiredEnum("category", StatusCategory.self)
+        }
+        return categories
+    }
+
+    /// One query for the whole project's cards. A board with nine columns
+    /// costs the same as a board with one.
+    private func allTasks(projectID: String, includeTrashed: Bool) throws -> [BoardTask] {
+        try database.query(
             """
             SELECT * FROM task
             WHERE project_id = ?\(includeTrashed ? "" : " AND trashed = 0")
             ORDER BY status_id, sort_order;
             """,
             [projectID]
-        ) { row in
-            let task = try BoardTask(row: row)
-            grouped[task.statusID, default: []].append(task)
+        ).map(BoardTask.init(row:))
+    }
+
+    /// A board defined by a question gathers whatever answers it, from any
+    /// project in the workspace rather than from one.
+    ///
+    /// A query that no longer parses is not allowed to blank the board: the
+    /// board falls back to its own project, and the failure surfaces where the
+    /// query is edited rather than as an empty screen with no explanation.
+    private func tasksMatchingBoardQuery(_ board: Board) throws -> [BoardTask] {
+        let repository = TaskRepository(database: database, clock: clock)
+        do {
+            return try repository.tasks(matching: board.filterQuery, inProject: board.projectID, acrossProjects: true)
+        } catch is QueryError {
+            return try allTasks(projectID: board.projectID, includeTrashed: false)
         }
-        return grouped
     }
 
     // MARK: - First run
@@ -244,14 +345,21 @@ public struct BoardRepository {
                 "INSERT INTO status (id, project_id, name, category, sort_order) VALUES (?, ?, ?, ?, ?);",
                 [statusID, projectID, starter.name, starter.category.rawValue, position]
             )
+            let columnID = UUID().uuidString
             try database.execute(
                 """
                 INSERT INTO board_column (id, board_id, status_id, name, sort_order)
                 VALUES (?, ?, ?, ?, ?);
                 """,
-                [UUID().uuidString, boardID, statusID, starter.name, position]
+                [columnID, boardID, statusID, starter.name, position]
+            )
+            try database.execute(
+                "INSERT INTO column_status (column_id, status_id, sort_order) VALUES (?, ?, ?);",
+                [columnID, statusID, SortOrder.step]
             )
         }
+
+        try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
 
         guard let row = try database.queryOne("SELECT * FROM board WHERE id = ?;", [boardID]) else {
             throw LocalBoardError.databaseQueryFailed(detail: "The starter board was not written.")

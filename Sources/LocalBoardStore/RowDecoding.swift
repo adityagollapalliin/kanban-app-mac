@@ -101,7 +101,18 @@ extension Board {
             projectID: try row.requiredString("project_id"),
             name: try row.requiredString("name"),
             sortOrder: try row.requiredDouble("sort_order"),
-            createdAt: try row.requiredDate("created_at")
+            createdAt: try row.requiredDate("created_at"),
+            // The presentation settings tolerate a missing column so that a
+            // board can still be read out of a query that did not select them.
+            swimlaneMode: row.int("swimlane_mode")
+                .flatMap { SwimlaneMode(rawValue: Int($0)) } ?? .none,
+            cardFields: CardField.list(from: row.string("card_fields") ?? "due,labels"),
+            colorRule: row.int("color_rule")
+                .flatMap { CardColorRule(rawValue: Int($0)) } ?? .none,
+            colorViewID: row.string("color_view_id"),
+            staleDays: row.int("stale_days").map(Int.init) ?? 3,
+            backlogEnabled: row.bool("backlog_enabled") ?? false,
+            filterQuery: row.string("filter_query") ?? ""
         )
     }
 }
@@ -114,6 +125,10 @@ extension BoardColumn {
             statusID: try row.requiredString("status_id"),
             name: try row.requiredString("name"),
             wipLimit: row.int("wip_limit").map(Int.init),
+            wipMinimum: row.int("wip_minimum").map(Int.init),
+            wipMeasure: row.int("wip_measure")
+                .flatMap { WIPMeasure(rawValue: Int($0)) } ?? .cardCount,
+            isBacklog: row.bool("is_backlog") ?? false,
             sortOrder: try row.requiredDouble("sort_order")
         )
     }
@@ -173,6 +188,10 @@ extension BoardTask {
             estimate: row.double("estimate"),
             sortOrder: try row.requiredDouble("sort_order"),
             trashed: try row.requiredBool("trashed"),
+            flagged: row.bool("flagged") ?? false,
+            flagReason: row.string("flag_reason") ?? "",
+            statusChangedAt: row.date("status_changed_at"),
+            versionID: row.string("version_id"),
             createdAt: try row.requiredDate("created_at"),
             updatedAt: try row.requiredDate("updated_at"),
             completedAt: row.date("completed_at")
@@ -189,6 +208,69 @@ extension SavedView {
             query: try row.requiredString("query"),
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Version {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            descriptionMarkdown: row.string("description_md") ?? "",
+            releaseDate: row.date("release_date"),
+            released: try row.requiredBool("released"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Swimlane {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            boardID: try row.requiredString("board_id"),
+            name: try row.requiredString("name"),
+            query: try row.requiredString("query"),
+            pinned: try row.requiredBool("pinned"),
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension QuickFilter {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            boardID: try row.requiredString("board_id"),
+            name: try row.requiredString("name"),
+            query: try row.requiredString("query"),
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension StatusChange {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            fromStatusID: row.string("from_status_id"),
+            toStatusID: try row.requiredString("to_status_id"),
+            at: try row.requiredDate("at")
+        )
+    }
+}
+
+extension RepositoryLink {
+    init(row: Row) throws {
+        self.init(
+            projectID: try row.requiredString("project_id"),
+            path: try row.requiredString("path"),
+            bookmark: row.data("bookmark"),
+            linkedAt: try row.requiredDate("linked_at")
         )
     }
 }
