@@ -57,14 +57,14 @@ func openApp() -> Int32 {
 
     let group = DispatchGroup()
     group.enter()
-    var failure: (any Error)?
+    let result = LaunchResult()
     workspace.openApplication(at: application, configuration: configuration) { _, error in
-        failure = error
+        result.record(error)
         group.leave()
     }
     group.wait()
 
-    if let failure {
+    if let failure = result.failure {
         Output.error("Could not open \(AppIdentity.displayName): \(failure.localizedDescription)")
         return ExitStatus.failure
     }
