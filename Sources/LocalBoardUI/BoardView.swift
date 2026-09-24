@@ -15,10 +15,28 @@ struct BoardView: View {
         } detail: {
             detail
         }
+        .inspector(isPresented: inspectorShown) {
+            if let task = model.selectedTask {
+                TaskDetailView(task: task, model: model)
+                    .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
+            } else {
+                ContentUnavailableView("No card selected", systemImage: "square.text.square")
+            }
+        }
         .task { model.load() }
         // Another process wrote to the same file. AppEnvironment notices on
         // activation and bumps the counter; this is where the board catches up.
         .onChange(of: externalChangeCount) { model.load() }
+    }
+
+    /// The inspector is open exactly when a card is selected, so closing it
+    /// and deselecting are the same action rather than two states that can
+    /// disagree.
+    private var inspectorShown: Binding<Bool> {
+        Binding(
+            get: { model.selectedTaskID != nil },
+            set: { shown in if !shown { model.selectedTaskID = nil } }
+        )
     }
 
     // MARK: - Sidebar

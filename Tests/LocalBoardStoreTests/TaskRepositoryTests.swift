@@ -192,6 +192,47 @@ struct TaskRepositoryTests {
         #expect(edited.updatedAt == clock.now)
     }
 
+    @Test("Type and priority survive a round trip")
+    func setTypeAndPriority() throws {
+        let (_, repository, _, ids) = try fixture()
+        let task = try repository.create(inProject: ids.project, statusID: ids.toDo, title: "Triage me")
+        #expect(task.type == .task)
+        #expect(task.priority == .normal)
+
+        try repository.setType(.bug, for: task.id)
+        try repository.setPriority(.highest, for: task.id)
+
+        let edited = try repository.task(id: task.id)
+        #expect(edited.type == .bug)
+        #expect(edited.priority == .highest)
+    }
+
+    @Test("A due date can be set and cleared again")
+    func setAndClearDueDate() throws {
+        let (_, repository, clock, ids) = try fixture()
+        let task = try repository.create(inProject: ids.project, statusID: ids.toDo, title: "Deadline")
+        #expect(task.dueDate == nil)
+
+        try repository.setDueDate(clock.now, for: task.id)
+        #expect(try repository.task(id: task.id).dueDate == clock.now)
+
+        try repository.setDueDate(nil, for: task.id)
+        #expect(try repository.task(id: task.id).dueDate == nil)
+    }
+
+    /// The inspector writes notes on blur, including blanking them.
+    @Test("Notes can be written and emptied")
+    func setDescription() throws {
+        let (_, repository, _, ids) = try fixture()
+        let task = try repository.create(inProject: ids.project, statusID: ids.toDo, title: "Documented")
+
+        try repository.setDescription("Some **notes**", for: task.id)
+        #expect(try repository.task(id: task.id).descriptionMarkdown == "Some **notes**")
+
+        try repository.setDescription("", for: task.id)
+        #expect(try repository.task(id: task.id).descriptionMarkdown == "")
+    }
+
     @Test("Editing a task that is not there is an error, not a silent no-op")
     func editMissingTask() throws {
         let (_, repository, _, _) = try fixture()

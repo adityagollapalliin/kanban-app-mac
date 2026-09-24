@@ -55,17 +55,27 @@ struct TaskCardView: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(.separator, lineWidth: 1)
+                .strokeBorder(isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
+                              lineWidth: isSelected ? 2 : 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture { model.selectedTaskID = task.id }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(tag). \(task.title)")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Opens the card for editing")
         .contextMenu {
+            Button("Get Info", systemImage: "info.circle") {
+                model.selectedTaskID = task.id
+            }
+            Divider()
             Button("Move to Trash", systemImage: "trash", role: .destructive) {
                 model.setTrashed(true, for: task.id)
             }
         }
     }
+
+    private var isSelected: Bool { model.selectedTaskID == task.id }
 
     private var isOverdue: Bool {
         guard let due = task.dueDate, task.completedAt == nil else { return false }

@@ -30,6 +30,21 @@ public final class BoardViewModel {
         }
     }
 
+    /// The card open in the inspector. Cleared when the card leaves the board,
+    /// so closing is never something the user has to do after a trash.
+    public var selectedTaskID: String?
+
+    public var selectedTask: BoardTask? {
+        guard let selectedTaskID else { return nil }
+        return snapshot?.columns.lazy.flatMap(\.tasks).first { $0.id == selectedTaskID }
+    }
+
+    /// The statuses this board shows, in column order — what the inspector's
+    /// status picker offers.
+    public var statuses: [Status] {
+        snapshot?.columns.map(\.status) ?? []
+    }
+
     private let database: Database
     private let boardRepository: BoardRepository
     private let taskRepository: TaskRepository
@@ -119,6 +134,7 @@ public final class BoardViewModel {
     public func setTrashed(_ trashed: Bool, for taskID: String) {
         perform {
             try taskRepository.setTrashed(trashed, for: taskID)
+            if trashed, selectedTaskID == taskID { selectedTaskID = nil }
             reloadSnapshot()
         }
     }
@@ -128,6 +144,40 @@ public final class BoardViewModel {
             try taskRepository.setTitle(title, for: taskID)
             reloadSnapshot()
         }
+    }
+
+    public func setDescription(_ markdown: String, for taskID: String) {
+        perform {
+            try taskRepository.setDescription(markdown, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setType(_ type: TaskType, for taskID: String) {
+        perform {
+            try taskRepository.setType(type, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setPriority(_ priority: Priority, for taskID: String) {
+        perform {
+            try taskRepository.setPriority(priority, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setDueDate(_ due: Date?, for taskID: String) {
+        perform {
+            try taskRepository.setDueDate(due, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Sends a card to the end of another column — the inspector's equivalent
+    /// of dragging it there.
+    public func moveToEnd(of statusID: String, taskID: String) {
+        move(taskID, toStatus: statusID, before: nil)
     }
 
     // MARK: - Error handling

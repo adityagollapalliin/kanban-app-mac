@@ -229,6 +229,10 @@ public struct TaskRepository {
         try update(taskID, "description_md = ?", [markdown])
     }
 
+    public func setType(_ type: TaskType, for taskID: String) throws {
+        try update(taskID, "type = ?", [type.rawValue])
+    }
+
     public func setPriority(_ priority: Priority, for taskID: String) throws {
         try update(taskID, "priority = ?", [priority.rawValue])
     }
