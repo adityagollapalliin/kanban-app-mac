@@ -10,7 +10,12 @@ func runCatching(_ body: () throws -> Int32) -> Int32 {
     } catch let error as LocalBoardError {
         Output.error(error.errorDescription ?? "Something went wrong.")
         if let reason = error.failureReason { Output.error(reason) }
-        if let suggestion = error.recoverySuggestion { Output.error(suggestion) }
+        // The recovery suggestions are written for the app's error surface —
+        // "correct the highlighted field" means nothing in a terminal, where
+        // the detail above has already said what to fix.
+        if case .invalidInput = error {} else if let suggestion = error.recoverySuggestion {
+            Output.error(suggestion)
+        }
         return ExitStatus.failure
     } catch {
         Output.error(error.localizedDescription)
@@ -33,6 +38,16 @@ func addCommand(_ arguments: Arguments, database: Database) -> Int32 {
         let project = try selection.project(key: arguments.option("project"))
         let status = try selection.status(named: arguments.option("status"), in: project)
 
+        var assigneeID: String?
+        if let name = arguments.option("assignee") {
+            guard let person = try PersonRepository(database: database).people().first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("nobody here is called `\(name)`. Add them with `localboard people add \"\(name)\"`.")
+            }
+            assigneeID = person.id
+        }
+
         let task = try TaskRepository(database: database).create(
             inProject: project.id,
             statusID: status.id,
@@ -40,6 +55,7 @@ func addCommand(_ arguments: Arguments, database: Database) -> Int32 {
             type: try arguments.option("type").map(Parse.type) ?? .task,
             priority: try arguments.option("priority").map(Parse.priority) ?? .normal,
             descriptionMarkdown: arguments.option("notes") ?? "",
+            assigneeID: assigneeID,
             dueDate: try arguments.option("due").map(Parse.date)
         )
 
@@ -74,7 +90,18 @@ func listCommand(_ arguments: Arguments, database: Database) -> Int32 {
 
         var rows: [[String]] = []
 
-        if let query = arguments.option("query") {
+        var query = arguments.option("query")
+        if let viewName = arguments.option("view") {
+            guard let view = try SavedViewRepository(database: database)
+                .views(inProject: project.id)
+                .first(where: { $0.name.caseInsensitiveCompare(viewName) == .orderedSame })
+            else {
+                throw CLIError("no view called `\(viewName)`. See them with `localboard views`.")
+            }
+            query = view.query
+        }
+
+        if let query {
             // The same language the app's search field speaks.
             rows = try tasks.tasks(matching: query, inProject: project.id).map(row)
         } else {
@@ -96,7 +123,7 @@ func listCommand(_ arguments: Arguments, database: Database) -> Int32 {
         }
 
         guard !rows.isEmpty else {
-            if arguments.option("query") != nil {
+            if query != nil {
                 Output.line("Nothing matches that query.")
             } else {
                 Output.line("No cards yet. Add one with `localboard add \"Write the thing\"`.")
@@ -197,4 +224,97 @@ struct ExportDocument: Codable {
     let project: Project
     let statuses: [Status]
     let tasks: [BoardTask]
+}
+
+// MARK: - people
+
+/// `localboard people` / `people add "Ada"` / `people remove "Ada"`
+func peopleCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let repository = PersonRepository(database: database)
+        let rest = arguments.remainder
+
+        switch rest.first?.lowercased() {
+        case nil, "list":
+            let people = try repository.people()
+            guard !people.isEmpty else {
+                Output.line("Nobody yet. Add someone with `localboard people add \"Ada\"`.")
+                return ExitStatus.success
+            }
+            Output.table(headers: ["NAME"], rows: people.map { [$0.name] })
+            return ExitStatus.success
+
+        case "add":
+            let name = rest.dropFirst().joined(separator: " ")
+            let person = try repository.create(name: name)
+            Output.line("Added \(person.name).")
+            return ExitStatus.success
+
+        case "remove", "delete":
+            let name = rest.dropFirst().joined(separator: " ")
+            guard let person = try repository.people().first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("nobody here is called `\(name)`.")
+            }
+            try repository.delete(person.id)
+            Output.line("Removed \(person.name). Their cards are still there, unassigned.")
+            return ExitStatus.success
+
+        case .some(let unknown):
+            throw CLIError("`people \(unknown)` is not a thing. Try list, add or remove.")
+        }
+    }
+}
+
+// MARK: - views
+
+/// `localboard views` / `views save "This week" "due < +7d"` / `views remove "This week"`
+func viewsCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let repository = SavedViewRepository(database: database)
+        let rest = arguments.remainder
+
+        switch rest.first?.lowercased() {
+        case nil, "list":
+            let views = try repository.views(inProject: project.id)
+            guard !views.isEmpty else {
+                Output.line("No views yet. Save one with `localboard views save \"This week\" \"due < +7d\"`.")
+                return ExitStatus.success
+            }
+            Output.table(headers: ["NAME", "QUERY"], rows: views.map { [$0.name, $0.query] })
+            return ExitStatus.success
+
+        case "save", "add":
+            let operands = Array(rest.dropFirst())
+            guard operands.count >= 2 else {
+                throw CLIError("saving a view needs a name and a query: `localboard views save \"This week\" \"due < +7d\"`.")
+            }
+            // The query is checked before it is stored, so a broken view is
+            // never something to discover weeks later.
+            let view = try repository.create(
+                inProject: project.id,
+                name: operands[0],
+                query: operands.dropFirst().joined(separator: " ")
+            )
+            Output.line("Saved \(view.name): \(view.query)")
+            return ExitStatus.success
+
+        case "remove", "delete":
+            let name = rest.dropFirst().joined(separator: " ")
+            guard let view = try repository.views(inProject: project.id).first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("no view called `\(name)`.")
+            }
+            try repository.delete(view.id)
+            Output.line("Removed \(view.name).")
+            return ExitStatus.success
+
+        case .some(let unknown):
+            throw CLIError("`views \(unknown)` is not a thing. Try list, save or remove.")
+        }
+    }
 }

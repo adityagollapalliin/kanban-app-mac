@@ -55,6 +55,8 @@ func printUsage() {
           localboard list                List the cards
           localboard seed                Add sample cards
           localboard export              Write the project as JSON on stdout
+          localboard people              List, add or remove people
+          localboard views               List, save or remove saved views
           localboard where               Print the data, diagnostics and attachment folders
           localboard version             Print the app and schema versions
           localboard help                Show this message
@@ -66,7 +68,9 @@ func printUsage() {
           --priority lowest..highest     Card priority for `add`
           --due YYYY-MM-DD               Due date for `add`
           --notes "<text>"               Notes for `add`
+          --assignee "<name>"            Who the card is for, on `add`
           --query "<filter>"             Filter `list` with the search language
+          --view "<name>"                Run a saved view with `list`
           --all                          Include trashed cards in list and export
 
         QUERY LANGUAGE
@@ -81,6 +85,9 @@ func printUsage() {
           Dates     2026-10-01, today, tomorrow, yesterday, +7d, -2w
           Joining   terms side by side mean all of them; `or`, `not` and
                     parentheses do what they look like
+
+          Save one with `localboard views save "This week" "due < +7d"`,
+          then run it with `localboard list --view "This week"`.
 
         Everything runs on this Mac. localboard makes no network connections.
         """)
@@ -166,6 +173,10 @@ case "seed":
     status = withDatabase { seedCommand(arguments, database: $0) }
 case "export":
     status = withDatabase { exportCommand(arguments, database: $0) }
+case "people":
+    status = withDatabase { peopleCommand(arguments, database: $0) }
+case "views":
+    status = withDatabase { viewsCommand(arguments, database: $0) }
 case .some(let unknown):
     Output.error("unknown command `\(unknown)`")
     printUsage()

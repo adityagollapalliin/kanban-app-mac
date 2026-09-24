@@ -239,3 +239,33 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.completedAt = completedAt
     }
 }
+
+/// A query kept by name.
+///
+/// The query text is what is stored, never a compiled result or a list of
+/// matching ids: a view is a question, and the answer is whatever is true when
+/// it is next asked.
+public struct SavedView: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var name: String
+    public var query: String
+    public var sortOrder: Double
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        query: String,
+        sortOrder: Double,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.name = name
+        self.query = query
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+}

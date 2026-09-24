@@ -37,6 +37,34 @@ struct MigrationTests {
         #expect(try database.count("SELECT count(*) FROM task;") == 1)
     }
 
+    /// The ladder's own rule: a new version is a new Migration plus a test
+    /// that carries a database at the previous version forward.
+    @Test("v1 upgrades to v2 and gains saved views without losing anything")
+    func upgradeToSavedViews() throws {
+        let database = try Database(location: .memory)
+        let v1 = try #require(Migration.all.first { $0.version == 1 })
+        try database.migrate(using: [v1])
+
+        let ids = try database.seedMinimalProject()
+        try database.insertTask(project: ids.project, status: ids.status, number: 1, title: "Older than v2")
+
+        // Saved views do not exist yet at v1.
+        #expect(throws: (any Error).self) {
+            try database.count("SELECT COUNT(*) FROM saved_view;")
+        }
+
+        try database.migrate(using: Migration.all)
+
+        #expect(try database.userVersion == 2)
+        #expect(try database.count("SELECT COUNT(*) FROM saved_view;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM task;") == 1)
+
+        // And the new table works on the carried-forward project.
+        try SavedViewRepository(database: database)
+            .create(inProject: ids.project, name: "Open", query: "is:open")
+        #expect(try database.count("SELECT COUNT(*) FROM saved_view;") == 1)
+    }
+
     /// Guards against an older build silently mangling a newer file.
     @Test("A newer database is refused, not opened")
     func refusesNewerSchema() throws {

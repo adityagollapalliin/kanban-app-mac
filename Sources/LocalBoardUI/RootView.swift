@@ -6,7 +6,6 @@ import LocalBoardCore
 public struct RootView: View {
 
     @Environment(AppEnvironment.self) private var environment
-    @State private var model: BoardViewModel?
 
     public init() {}
 
@@ -14,23 +13,13 @@ public struct RootView: View {
         Group {
             if let error = environment.startupError {
                 StartupErrorView(error: error)
-            } else if let model {
+            } else if let model = environment.board {
                 BoardView(model: model, externalChangeCount: environment.externalChangeCount)
             } else {
                 opening
             }
         }
         .frame(minWidth: 720, minHeight: 480)
-        .task { connectToDatabase() }
-        // AppEnvironment.start() runs from the scene's own task, which may land
-        // after this view's. Watching for the database means the board appears
-        // whichever order the two finish in.
-        .onChange(of: environment.database == nil) { connectToDatabase() }
-    }
-
-    private func connectToDatabase() {
-        guard model == nil, let database = environment.database else { return }
-        model = BoardViewModel(database: database)
     }
 
     /// The gap between the window appearing and the file being open. Usually

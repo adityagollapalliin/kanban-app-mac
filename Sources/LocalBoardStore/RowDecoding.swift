@@ -179,3 +179,16 @@ extension BoardTask {
         )
     }
 }
+
+extension SavedView {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            query: try row.requiredString("query"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}

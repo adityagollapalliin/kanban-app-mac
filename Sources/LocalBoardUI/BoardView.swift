@@ -8,6 +8,9 @@ struct BoardView: View {
     @Bindable var model: BoardViewModel
     let externalChangeCount: Int
 
+    @State private var isNamingView = false
+    @State private var newViewName = ""
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -58,8 +61,43 @@ struct BoardView: View {
                     }
                 }
             }
+
+            if !model.savedViews.isEmpty {
+                Section("Views") {
+                    ForEach(model.savedViews) { view in
+                        savedViewRow(view)
+                    }
+                }
+            }
         }
         .listStyle(.sidebar)
+    }
+
+    /// A view is a button rather than a selectable row: opening one changes
+    /// the filter, not which board is on screen.
+    private func savedViewRow(_ view: SavedView) -> some View {
+        let isActive = model.queryText == view.query
+
+        return Button {
+            model.apply(view)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease.circle\(isActive ? ".fill" : "")")
+                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                Text(view.name)
+                    .foregroundStyle(isActive ? Color.accentColor : .primary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(view.query)
+        .accessibilityHint("Filters the board by: \(view.query)")
+        .contextMenu {
+            Button("Delete View", systemImage: "trash", role: .destructive) {
+                model.deleteSavedView(view.id)
+            }
+        }
     }
 
     // MARK: - Detail
@@ -92,6 +130,56 @@ struct BoardView: View {
             placement: .toolbar,
             prompt: "due < +7d   priority >= high   is:overdue"
         )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Save View", systemImage: "bookmark") {
+                    newViewName = ""
+                    isNamingView = true
+                }
+                .disabled(!model.canSaveCurrentQuery)
+                .help(model.canSaveCurrentQuery
+                      ? "Keep this query under a name"
+                      : "Type a query to save it as a view")
+            }
+        }
+        .sheet(isPresented: $isNamingView) { namingSheet }
+    }
+
+    private var namingSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Save this view")
+                .font(.headline)
+
+            // The query is shown, not hidden behind the name: a view is a
+            // question, and it should be obvious which one is being kept.
+            Text(model.queryText)
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(3)
+
+            TextField("Name", text: $newViewName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(saveView)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { isNamingView = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save", action: saveView)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(newViewName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+
+    private func saveView() {
+        let name = newViewName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        model.saveCurrentQuery(named: name)
+        isNamingView = false
     }
 
     private var subtitle: String {

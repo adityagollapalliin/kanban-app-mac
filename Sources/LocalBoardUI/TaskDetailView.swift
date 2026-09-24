@@ -57,6 +57,18 @@ struct TaskDetailView: View {
                         Text(label(for: priority)).tag(priority)
                     }
                 }
+
+                Picker("Assignee", selection: assigneeBinding) {
+                    Text("Unassigned").tag(String?.none)
+                    ForEach(model.people) { person in
+                        Text(person.name).tag(String?.some(person.id))
+                    }
+                }
+                // With nobody added yet the picker has one entry and no
+                // purpose; the hint says where people come from.
+                .help(model.people.isEmpty
+                      ? "Add people in Settings, or with `localboard people add`"
+                      : "Who is carrying this card")
             }
 
             Section("Due") {
@@ -147,6 +159,10 @@ struct TaskDetailView: View {
 
     private var typeBinding: Binding<TaskType> {
         Binding(get: { task.type }, set: { model.setType($0, for: task.id) })
+    }
+
+    private var assigneeBinding: Binding<String?> {
+        Binding(get: { task.assigneeID }, set: { model.setAssignee($0, for: task.id) })
     }
 
     private var priorityBinding: Binding<Priority> {

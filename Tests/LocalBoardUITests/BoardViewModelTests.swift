@@ -300,6 +300,118 @@ struct BoardViewModelTests {
         #expect(model.visibleColumns[0].tasks.map(\.title) == ["Keep me"])
     }
 
+    // MARK: - People
+
+    @Test("Adding someone makes them assignable")
+    func people() throws {
+        let model = try loadedModel()
+        #expect(model.people.isEmpty)
+
+        model.createPerson(named: "Ada")
+
+        #expect(model.people.map(\.name) == ["Ada"])
+        #expect(model.failure == nil)
+    }
+
+    @Test("A card can be assigned and unassigned")
+    func assigning() throws {
+        let model = try loadedModel()
+        model.createPerson(named: "Ada")
+        model.addTask(title: "Work", toStatus: column(model, 0).status.id)
+
+        let ada = try #require(model.people.first)
+        let task = try #require(column(model, 0).tasks.first)
+
+        model.setAssignee(ada.id, for: task.id)
+        #expect(column(model, 0).tasks.first?.assigneeID == ada.id)
+        #expect(model.person(id: ada.id)?.name == "Ada")
+
+        model.setAssignee(nil, for: task.id)
+        #expect(column(model, 0).tasks.first?.assigneeID == nil)
+    }
+
+    /// Someone leaving should not take their work with them.
+    @Test("Removing someone leaves their cards, unassigned")
+    func removingPerson() throws {
+        let model = try loadedModel()
+        model.createPerson(named: "Ada")
+        model.addTask(title: "Their work", toStatus: column(model, 0).status.id)
+
+        let ada = try #require(model.people.first)
+        let task = try #require(column(model, 0).tasks.first)
+        model.setAssignee(ada.id, for: task.id)
+
+        model.deletePerson(ada.id)
+
+        #expect(model.people.isEmpty)
+        #expect(model.totalTaskCount == 1)
+        #expect(column(model, 0).tasks.first?.assigneeID == nil)
+    }
+
+    // MARK: - Saved views
+
+    @Test("A query worth keeping can be saved and reopened")
+    func savingAView() throws {
+        let model = try loadedModel()
+        let toDo = column(model, 0).status.id
+        model.addTask(title: "A bug", toStatus: toDo)
+        model.addTask(title: "A story", toStatus: toDo)
+        let bug = try #require(column(model, 0).tasks.first { $0.title == "A bug" })
+        model.setType(.bug, for: bug.id)
+
+        model.queryText = "type:bug"
+        #expect(model.canSaveCurrentQuery)
+        model.saveCurrentQuery(named: "Bugs")
+
+        #expect(model.savedViews.map(\.name) == ["Bugs"])
+
+        // Reopening puts the question back in the field, not just the answer.
+        model.queryText = ""
+        #expect(model.visibleTaskCount == 2)
+
+        let view = try #require(model.savedViews.first)
+        model.apply(view)
+
+        #expect(model.queryText == "type:bug")
+        #expect(model.visibleColumns[0].tasks.map(\.title) == ["A bug"])
+    }
+
+    @Test("There is nothing to save until something parses")
+    func cannotSaveNothing() throws {
+        let model = try loadedModel()
+        #expect(model.canSaveCurrentQuery == false)
+
+        model.queryText = "   "
+        #expect(model.canSaveCurrentQuery == false)
+
+        model.queryText = "due <"
+        #expect(model.canSaveCurrentQuery == false, "a query that does not parse is not worth keeping")
+
+        model.queryText = "is:open"
+        #expect(model.canSaveCurrentQuery)
+    }
+
+    @Test("A view can be deleted")
+    func deletingAView() throws {
+        let model = try loadedModel()
+        model.queryText = "is:open"
+        model.saveCurrentQuery(named: "Open")
+        let view = try #require(model.savedViews.first)
+
+        model.deleteSavedView(view.id)
+        #expect(model.savedViews.isEmpty)
+    }
+
+    @Test("Views survive a reload")
+    func viewsSurviveReload() throws {
+        let model = try loadedModel()
+        model.queryText = "is:overdue"
+        model.saveCurrentQuery(named: "Late")
+
+        model.load()
+        #expect(model.savedViews.map(\.name) == ["Late"])
+    }
+
     // MARK: - Editing
 
     @Test("Edits from the inspector reach the board")

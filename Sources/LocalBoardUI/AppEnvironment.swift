@@ -17,6 +17,10 @@ public final class AppEnvironment {
     public private(set) var paths: ContainerPaths?
     public private(set) var database: Database?
     public private(set) var diagnostics: DiagnosticsDirectory?
+
+    /// Owned here rather than by a view, so that the Settings window and the
+    /// board window edit the same people rather than two copies of them.
+    public private(set) var board: BoardViewModel?
     public private(set) var startupError: LocalBoardError?
 
     /// Bumped whenever another process (the `localboard` CLI) commits a change,
@@ -48,6 +52,7 @@ public final class AppEnvironment {
 
             let opened = try Database.openBoardDatabase(paths: resolved)
             database = opened
+            board = BoardViewModel(database: opened)
             lastSeenDataVersion = (try? opened.dataVersion) ?? 0
 
             diagnosticsDirectory.record("app.launch version=\(Migration.latestVersion)")

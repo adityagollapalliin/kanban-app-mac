@@ -84,14 +84,21 @@ public final class BoardViewModel {
         snapshot?.columns.map(\.status) ?? []
     }
 
+    public private(set) var people: [Person] = []
+    public private(set) var savedViews: [SavedView] = []
+
     private let database: Database
     private let boardRepository: BoardRepository
     private let taskRepository: TaskRepository
+    private let personRepository: PersonRepository
+    private let savedViewRepository: SavedViewRepository
 
     public init(database: Database, clock: any ClockProvider = SystemClock()) {
         self.database = database
         self.boardRepository = BoardRepository(database: database, clock: clock)
         self.taskRepository = TaskRepository(database: database, clock: clock)
+        self.personRepository = PersonRepository(database: database, clock: clock)
+        self.savedViewRepository = SavedViewRepository(database: database, clock: clock)
     }
 
     // MARK: - Loading
@@ -122,7 +129,13 @@ public final class BoardViewModel {
             snapshot = nil
             return
         }
-        perform { snapshot = try boardRepository.snapshot(boardID: selectedBoardID) }
+        perform {
+            snapshot = try boardRepository.snapshot(boardID: selectedBoardID)
+            people = try personRepository.people()
+            if let projectID = snapshot?.board.projectID {
+                savedViews = try savedViewRepository.views(inProject: projectID)
+            }
+        }
         applyQuery()
     }
 
@@ -244,6 +257,83 @@ public final class BoardViewModel {
     /// of dragging it there.
     public func moveToEnd(of statusID: String, taskID: String) {
         move(taskID, toStatus: statusID, before: nil)
+    }
+
+    // MARK: - People
+
+    public func createPerson(named name: String) {
+        perform {
+            try personRepository.create(name: name)
+            people = try personRepository.people()
+        }
+    }
+
+    public func renamePerson(_ personID: String, to name: String) {
+        perform {
+            try personRepository.rename(personID, to: name)
+            people = try personRepository.people()
+        }
+    }
+
+    /// Their cards stay; they simply become unassigned.
+    public func deletePerson(_ personID: String) {
+        perform {
+            try personRepository.delete(personID)
+            people = try personRepository.people()
+            reloadSnapshot()
+        }
+    }
+
+    public func setAssignee(_ personID: String?, for taskID: String) {
+        perform {
+            try taskRepository.setAssignee(personID, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func person(id: String?) -> Person? {
+        guard let id else { return nil }
+        return people.first { $0.id == id }
+    }
+
+    // MARK: - Saved views
+
+    /// Whether what is in the search field is worth keeping: something is
+    /// typed, and it parses.
+    public var canSaveCurrentQuery: Bool {
+        !queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && queryFailure == nil
+    }
+
+    public func saveCurrentQuery(named name: String) {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try savedViewRepository.create(inProject: projectID, name: name, query: queryText)
+            savedViews = try savedViewRepository.views(inProject: projectID)
+        }
+    }
+
+    /// Opening a view puts its question back in the search field, so it can be
+    /// read and adjusted rather than being an opaque filter.
+    public func apply(_ view: SavedView) {
+        queryText = view.query
+    }
+
+    public func deleteSavedView(_ viewID: String) {
+        perform {
+            try savedViewRepository.delete(viewID)
+            if let projectID = snapshot?.board.projectID {
+                savedViews = try savedViewRepository.views(inProject: projectID)
+            }
+        }
+    }
+
+    public func renameSavedView(_ viewID: String, to name: String) {
+        perform {
+            try savedViewRepository.rename(viewID, to: name)
+            if let projectID = snapshot?.board.projectID {
+                savedViews = try savedViewRepository.views(inProject: projectID)
+            }
+        }
     }
 
     // MARK: - Error handling
