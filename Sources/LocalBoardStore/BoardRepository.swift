@@ -9,12 +9,28 @@ public struct BoardSnapshot: Sendable, Equatable, Identifiable {
     public let board: Board
     public let columns: [LoadedColumn]
 
+    /// What each card carries, keyed by card id. Gathered in one query each
+    /// rather than per card, so a board of two hundred cards costs the same
+    /// handful of statements as a board of two.
+    public let labels: [String: [Label]]
+    public let checklists: [String: ChecklistProgress]
+    public let subtasks: [String: ChecklistProgress]
+
     public var id: String { board.id }
     public var taskCount: Int { columns.reduce(0) { $0 + $1.tasks.count } }
 
-    public init(board: Board, columns: [LoadedColumn]) {
+    public init(
+        board: Board,
+        columns: [LoadedColumn],
+        labels: [String: [Label]] = [:],
+        checklists: [String: ChecklistProgress] = [:],
+        subtasks: [String: ChecklistProgress] = [:]
+    ) {
         self.board = board
         self.columns = columns
+        self.labels = labels
+        self.checklists = checklists
+        self.subtasks = subtasks
     }
 }
 
@@ -44,8 +60,11 @@ public struct LoadedColumn: Sendable, Equatable, Identifiable {
 /// Reads the board structure: workspaces, projects, boards and their columns.
 public struct BoardRepository {
 
-    private let database: Database
+    let database: Database
     private let clock: any ClockProvider
+
+    /// The clock, for the editing extension in BoardRepository+Editing.
+    var clockNow: Date { clock.now }
 
     public init(database: Database, clock: any ClockProvider = SystemClock()) {
         self.database = database
@@ -134,7 +153,13 @@ public struct BoardRepository {
             return LoadedColumn(column: column, status: status, tasks: tasksByStatus[statusID] ?? [])
         }
 
-        return BoardSnapshot(board: board, columns: columns)
+        return BoardSnapshot(
+            board: board,
+            columns: columns,
+            labels: try LabelRepository(database: database).labelsByTask(inProject: board.projectID),
+            checklists: try ChecklistRepository(database: database).progressByTask(inProject: board.projectID),
+            subtasks: try TaskRepository(database: database).subtaskProgress(inProject: board.projectID)
+        )
     }
 
     /// One query for the whole project's cards, grouped by status. A board with

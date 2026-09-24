@@ -80,6 +80,10 @@ struct TaskQueryCompiler {
             return "task.assignee_id IS NOT NULL"
         case .unassigned:
             return "task.assignee_id IS NULL"
+        case .subtask:
+            return "task.parent_id IS NOT NULL"
+        case .labelled:
+            return "task.id IN (SELECT task_id FROM task_label)"
         }
     }
 
@@ -91,6 +95,12 @@ struct TaskQueryCompiler {
     ) throws -> String {
         // `due = none` and `assignee != none` are about presence, whatever the
         // column's type.
+        if case .none = value, field == .label {
+            return comparison == .notEquals
+                ? "task.id IN (SELECT task_id FROM task_label)"
+                : "task.id NOT IN (SELECT task_id FROM task_label)"
+        }
+
         if case .none = value {
             let column = try columnName(for: field)
             switch comparison {
@@ -147,6 +157,21 @@ struct TaskQueryCompiler {
             return comparison == .notEquals
                 ? "task.assignee_id NOT IN (\(subquery))"
                 : "task.assignee_id IN (\(subquery))"
+
+        case .label:
+            guard case .text(let name) = value else {
+                throw QueryError("`label` takes a label's name.")
+            }
+            parameters.append(.text(projectID))
+            parameters.append(.text(name))
+            let subquery = """
+                SELECT task_label.task_id FROM task_label
+                JOIN label ON label.id = task_label.label_id
+                WHERE label.project_id = ? AND label.name = ? COLLATE NOCASE
+                """
+            return comparison == .notEquals
+                ? "task.id NOT IN (\(subquery))"
+                : "task.id IN (\(subquery))"
 
         case .title:
             guard case .text(let text) = value else {
@@ -210,6 +235,7 @@ struct TaskQueryCompiler {
         case .type: "type"
         case .status: "status_id"
         case .title: "title"
+        case .label: "id"
         }
     }
 

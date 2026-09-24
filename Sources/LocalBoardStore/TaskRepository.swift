@@ -8,7 +8,7 @@ import LocalBoardCore
 /// tests can place a task in time without sleeping.
 public struct TaskRepository {
 
-    private let database: Database
+    let database: Database
     private let clock: any ClockProvider
 
     public init(database: Database, clock: any ClockProvider = SystemClock()) {
@@ -287,7 +287,7 @@ public struct TaskRepository {
     }
 
     /// One field, plus the `updated_at` stamp every edit owes.
-    private func update(_ taskID: String, _ assignment: String, _ values: [SQLValueConvertible]) throws {
+    func update(_ taskID: String, _ assignment: String, _ values: [SQLValueConvertible]) throws {
         let changed = try database.execute(
             "UPDATE task SET \(assignment), updated_at = ? WHERE id = ?;",
             values + [clock.now, taskID]

@@ -41,7 +41,7 @@ extension TaskFilter {
 
 public enum QueryField: String, Sendable, CaseIterable {
     case due, start, created, updated, completed
-    case priority, type, status, title, assignee
+    case priority, type, status, title, assignee, label
 
     var isDate: Bool {
         switch self {
@@ -65,7 +65,7 @@ public enum QueryValue: Sendable, Equatable {
 }
 
 public enum QueryFlag: String, Sendable, CaseIterable {
-    case done, open, overdue, trashed, assigned, unassigned
+    case done, open, overdue, trashed, assigned, unassigned, subtask, labelled
 }
 
 /// A date the user can write: an exact day, or one relative to today.
@@ -350,7 +350,7 @@ public enum TaskQueryParser {
                 }
                 return .type(type)
 
-            case .status, .title, .assignee:
+            case .status, .title, .assignee, .label:
                 return .text(raw)
 
             default:

@@ -269,3 +269,17 @@ public struct SavedView: Sendable, Equatable, Identifiable, Codable {
         self.createdAt = createdAt
     }
 }
+
+/// How far through a card's checklist it is.
+public struct ChecklistProgress: Sendable, Equatable, Codable {
+    public let done: Int
+    public let total: Int
+
+    public init(done: Int, total: Int) {
+        self.done = done
+        self.total = total
+    }
+
+    public var isComplete: Bool { total > 0 && done == total }
+    public var fraction: Double { total == 0 ? 0 : Double(done) / Double(total) }
+}
