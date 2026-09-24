@@ -1,0 +1,26 @@
+// Single source of truth for app naming and versioning.
+// Renaming the app: change these three values and the matching constants in
+// Sources/LocalBoardCore/AppIdentity.swift. Nothing else hardcodes the name.
+
+APP_DISPLAY_NAME = LocalBoard
+APP_BUNDLE_ID = dev.localboard.LocalBoard
+APP_CLI_NAME = localboard
+
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+MACOSX_DEPLOYMENT_TARGET = 14.0
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = YES
+SWIFT_VERSION = 6.0
+PRODUCT_NAME = $(APP_DISPLAY_NAME)
+PRODUCT_BUNDLE_IDENTIFIER = $(APP_BUNDLE_ID)
+INFOPLIST_FILE = App/Info.plist
+CODE_SIGN_ENTITLEMENTS = App/LocalBoard.entitlements
+CODE_SIGN_IDENTITY = -
+CODE_SIGNING_REQUIRED = YES
+CODE_SIGNING_ALLOWED = YES
+ENABLE_HARDENED_RUNTIME = YES
+ENABLE_APP_SANDBOX = YES
+SWIFT_STRICT_CONCURRENCY = complete
+GCC_TREAT_WARNINGS_AS_ERRORS = NO
