@@ -27,15 +27,46 @@ func openDatabase() throws -> Database {
     return try Database.openBoardDatabase(paths: paths)
 }
 
+/// Opens the board, runs the command, and closes again. The app may well be
+/// running against the same file; WAL and a busy timeout are what make that
+/// safe, and holding the handle no longer than needed is the other half.
+func withDatabase(_ body: (Database) -> Int32) -> Int32 {
+    do {
+        let database = try openDatabase()
+        defer { database.close() }
+        return body(database)
+    } catch let error as LocalBoardError {
+        Output.error(error.errorDescription ?? "Could not open the board.")
+        if let suggestion = error.recoverySuggestion { Output.error(suggestion) }
+        return ExitStatus.failure
+    } catch {
+        Output.error(error.localizedDescription)
+        return ExitStatus.failure
+    }
+}
+
 func printUsage() {
     Output.line("""
         \(AppIdentity.displayName) — local-only Kanban and project management.
 
         USAGE
           localboard                     Open the app
+          localboard add <title>         Add a card
+          localboard list                List the cards
+          localboard seed                Add sample cards
+          localboard export              Write the project as JSON on stdout
           localboard where               Print the data, diagnostics and attachment folders
           localboard version             Print the app and schema versions
           localboard help                Show this message
+
+        OPTIONS
+          --project <KEY>                Which project, when there is more than one
+          --status "<name>"              Which column. Defaults to the first one
+          --type epic|story|task|bug     Card type for `add`
+          --priority lowest..highest     Card priority for `add`
+          --due YYYY-MM-DD               Due date for `add`
+          --notes "<text>"               Notes for `add`
+          --all                          Include trashed cards in list and export
 
         Everything runs on this Mac. localboard makes no network connections.
         """)
@@ -113,9 +144,14 @@ case "version", "--version":
 case "help", "--help":
     printUsage()
     status = ExitStatus.success
-case "add", "list", "seed", "export":
-    Output.error("`\(arguments.subcommand ?? "")` arrives with the Kanban milestone. Run `localboard help` for what works today.")
-    status = ExitStatus.usage
+case "add":
+    status = withDatabase { addCommand(arguments, database: $0) }
+case "list":
+    status = withDatabase { listCommand(arguments, database: $0) }
+case "seed":
+    status = withDatabase { seedCommand(arguments, database: $0) }
+case "export":
+    status = withDatabase { exportCommand(arguments, database: $0) }
 case .some(let unknown):
     Output.error("unknown command `\(unknown)`")
     printUsage()

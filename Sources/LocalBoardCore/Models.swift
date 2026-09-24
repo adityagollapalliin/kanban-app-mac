@@ -8,7 +8,7 @@ import Foundation
 /// the schema stores them, so a record keeps its identity across export and
 /// import and across the app/CLI boundary.
 
-public struct Workspace: Sendable, Equatable, Identifiable {
+public struct Workspace: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var name: String
     public var sortOrder: Double
@@ -22,7 +22,7 @@ public struct Workspace: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Project: Sendable, Equatable, Identifiable {
+public struct Project: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var workspaceID: String
     public var name: String
@@ -59,7 +59,7 @@ public struct Project: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Status: Sendable, Equatable, Identifiable {
+public struct Status: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var projectID: String
     public var name: String
@@ -75,7 +75,7 @@ public struct Status: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Board: Sendable, Equatable, Identifiable {
+public struct Board: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var projectID: String
     public var name: String
@@ -94,7 +94,7 @@ public struct Board: Sendable, Equatable, Identifiable {
 /// A column is a board's view of one status, which is why it carries both ids:
 /// two boards over the same project can show the same status in different
 /// positions, with different WIP limits, under different names.
-public struct BoardColumn: Sendable, Equatable, Identifiable {
+public struct BoardColumn: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var boardID: String
     public var statusID: String
@@ -121,7 +121,7 @@ public struct BoardColumn: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Person: Sendable, Equatable, Identifiable {
+public struct Person: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var name: String
     public var color: String
@@ -137,7 +137,7 @@ public struct Person: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Label: Sendable, Equatable, Identifiable {
+public struct Label: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var projectID: String
     public var name: String
@@ -151,7 +151,7 @@ public struct Label: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct ChecklistItem: Sendable, Equatable, Identifiable {
+public struct ChecklistItem: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var taskID: String
     public var text: String
@@ -172,7 +172,7 @@ public struct ChecklistItem: Sendable, Equatable, Identifiable {
 /// Named `BoardTask` rather than `Task` on purpose: a type called `Task` in
 /// this module would shadow `_Concurrency.Task` in every file that imports it,
 /// and the UI layer needs `Task { }` for its async work.
-public struct BoardTask: Sendable, Equatable, Identifiable {
+public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var projectID: String
     public var statusID: String
