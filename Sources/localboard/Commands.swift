@@ -497,3 +497,163 @@ private func categoryLabel(_ category: StatusCategory) -> String {
     case .done: "done"
     }
 }
+
+// MARK: - Flags
+
+/// `localboard flag TASK-3 "waiting on legal"`, and `--off` to clear it.
+///
+/// Flagging from the terminal is the case this earns its keep on: the moment
+/// you find out a thing is blocked is usually the moment you are in a shell
+/// looking at why.
+func flagCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let repository = TaskRepository(database: database)
+        let rest = arguments.remainder
+
+        // No arguments: list what is blocked, which is the other half of the
+        // question and the reason to look at flags at all.
+        guard let tag = rest.first else {
+            let flagged = try repository.tasks(matching: "is:flagged", inProject: project.id)
+            guard !flagged.isEmpty else {
+                Output.line("Nothing is flagged in \(project.key).")
+                return ExitStatus.success
+            }
+            Output.table(
+                headers: ["ID", "TITLE", "WHY"],
+                rows: flagged.map { [$0.tag(in: project), $0.title, $0.flagReason] }
+            )
+            return ExitStatus.success
+        }
+
+        let task = try selection.task(tag: tag, in: project)
+
+        if arguments.flag("off") {
+            try repository.setFlag(false, for: task.id)
+            Output.line("\(task.tag(in: project)) is no longer flagged.")
+            return ExitStatus.success
+        }
+
+        let reason = rest.dropFirst().joined(separator: " ")
+        try repository.setFlag(true, reason: reason, for: task.id)
+        Output.line(reason.isEmpty
+            ? "\(task.tag(in: project)) is flagged."
+            : "\(task.tag(in: project)) is flagged: \(reason)")
+        return ExitStatus.success
+    }
+}
+
+// MARK: - Releases
+
+func versionsCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let repository = VersionRepository(database: database)
+        let rest = arguments.remainder
+
+        func version(named name: String) throws -> Version {
+            guard let match = try repository.versions(inProject: project.id).first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("no release called `\(name)` in \(project.key).")
+            }
+            return match
+        }
+
+        switch rest.first?.lowercased() {
+        case nil, "list":
+            let versions = try repository.versions(inProject: project.id)
+            guard !versions.isEmpty else {
+                Output.line("No releases yet. Add one with `localboard versions add 1.0`.")
+                return ExitStatus.success
+            }
+            // Cards and points both, because they disagree and which one a
+            // team believes is not this program's decision.
+            Output.table(
+                headers: ["NAME", "DONE", "POINTS", "SHIPPED"],
+                rows: try versions.map { version in
+                    let progress = try repository.progress(ofVersion: version.id)
+                    return [
+                        version.name,
+                        "\(progress.done)/\(progress.total)",
+                        progress.points == 0
+                            ? "—"
+                            : "\(Parse.number(progress.donePoints))/\(Parse.number(progress.points))",
+                        version.released ? "yes" : "no",
+                    ]
+                }
+            )
+            return ExitStatus.success
+
+        case "add":
+            let created = try repository.create(
+                inProject: project.id,
+                name: rest.dropFirst().joined(separator: " "),
+                releaseDate: try arguments.option("due").map(Parse.date)
+            )
+            Output.line("Added \(created.name).")
+            return ExitStatus.success
+
+        case "remove", "delete":
+            let existing = try version(named: rest.dropFirst().joined(separator: " "))
+            try repository.delete(existing.id)
+            Output.line("Removed \(existing.name). The cards that were in it are untouched.")
+            return ExitStatus.success
+
+        case "release":
+            let existing = try version(named: rest.dropFirst().joined(separator: " "))
+            try repository.setReleased(true, for: existing.id)
+            let progress = try repository.progress(ofVersion: existing.id)
+            Output.line(progress.remaining > 0
+                ? "\(existing.name) is released, with \(progress.remaining) card\(progress.remaining == 1 ? "" : "s") still open."
+                : "\(existing.name) is released.")
+            return ExitStatus.success
+
+        case "on":
+            let operands = Array(rest.dropFirst())
+            guard operands.count >= 2 else {
+                throw CLIError("putting a card in a release needs both: `localboard versions on TASK-3 1.0`.")
+            }
+            let task = try selection.task(tag: operands[0], in: project)
+            let existing = try version(named: operands.dropFirst().joined(separator: " "))
+
+            try TaskRepository(database: database).setVersion(existing.id, for: task.id)
+            Output.line("\(task.tag(in: project)) is going out in \(existing.name).")
+            return ExitStatus.success
+
+        case .some(let unknown):
+            throw CLIError("`versions \(unknown)` is not a thing. Try list, add, remove, release or on.")
+        }
+    }
+}
+
+// MARK: - Estimates
+
+/// `localboard points TASK-3 5`, or with no number to clear it.
+func pointsCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let rest = arguments.remainder
+
+        guard let tag = rest.first else {
+            throw CLIError("which card? `localboard points TASK-3 5`.")
+        }
+        let task = try selection.task(tag: tag, in: project)
+
+        guard let raw = rest.dropFirst().first else {
+            try TaskRepository(database: database).setEstimate(nil, for: task.id)
+            Output.line("\(task.tag(in: project)) is unestimated.")
+            return ExitStatus.success
+        }
+        guard let value = Double(raw) else {
+            throw CLIError("`\(raw)` is not a number of points.")
+        }
+
+        try TaskRepository(database: database).setEstimate(value, for: task.id)
+        Output.line("\(task.tag(in: project)) is \(Parse.number(value)) point\(value == 1 ? "" : "s").")
+        return ExitStatus.success
+    }
+}

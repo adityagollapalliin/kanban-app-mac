@@ -59,6 +59,9 @@ func printUsage() {
           localboard restore <ID>        Take it back out again
           localboard labels              List, add or remove labels; put one on a card
           localboard columns             List, add or remove the board's columns
+          localboard flag <ID> "<why>"   Flag a card as blocked, or list what is
+          localboard versions            List, add or ship releases
+          localboard points <ID> <n>     Set or clear a card's estimate
           localboard people              List, add or remove people
           localboard views               List, save or remove saved views
           localboard where               Print the data, diagnostics and attachment folders
@@ -78,18 +81,21 @@ func printUsage() {
           --color <name>                 Colour for `labels add`
           --counts-as todo|progress|done Category for `columns add`
           --move-to "<column>"           Where cards go when removing a column
-          --off                          Take a label off, with `labels on`
+          --off                          Take a label off, or clear a flag
           --all                          Include trashed cards in list and export
 
         QUERY LANGUAGE
           localboard list --query "due < +7d priority >= high"
           localboard list --query "is:overdue not type:epic"
           localboard list --query 'status = "In Progress" or is:done'
+          localboard list --query "days >= 5 is:flagged"
+          localboard list --query "points >= 5 version = 1.0"
 
           Fields    due start created updated completed priority type status
-                    title assignee
+                    title assignee label key version epic points days flag
           Flags     is:done is:open is:overdue is:trashed is:assigned
-                    is:unassigned
+                    is:unassigned is:flagged is:mine is:epic is:released
+                    is:subtask is:labelled is:backlog
           Dates     2026-10-01, today, tomorrow, yesterday, +7d, -2w
           Joining   terms side by side mean all of them; `or`, `not` and
                     parentheses do what they look like
@@ -193,6 +199,12 @@ case "labels":
     status = withDatabase { labelsCommand(arguments, database: $0) }
 case "columns":
     status = withDatabase { columnsCommand(arguments, database: $0) }
+case "flag":
+    status = withDatabase { flagCommand(arguments, database: $0) }
+case "versions", "releases":
+    status = withDatabase { versionsCommand(arguments, database: $0) }
+case "points":
+    status = withDatabase { pointsCommand(arguments, database: $0) }
 case .some(let unknown):
     Output.error("unknown command `\(unknown)`")
     printUsage()

@@ -23,6 +23,14 @@ public struct LocalBoardScene: App {
             CommandGroup(replacing: .newItem) {}
         }
 
+        // ⌥-click a card, or use its menu. A card opened this way is the same
+        // card the board is showing, edited through the same view model.
+        WindowGroup(id: TaskWindow.identifier, for: String.self) { $taskID in
+            TaskWindow(taskID: taskID)
+                .environment(environment)
+        }
+        .defaultSize(width: 380, height: 560)
+
         Settings {
             SettingsView()
                 .environment(environment)

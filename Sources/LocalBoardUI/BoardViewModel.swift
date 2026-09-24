@@ -61,6 +61,7 @@ public final class BoardViewModel {
             LoadedColumn(
                 column: column.column,
                 status: column.status,
+                statuses: column.statuses,
                 tasks: column.tasks.filter { matchingTaskIDs.contains($0.id) }
             )
         }
@@ -113,6 +114,53 @@ public final class BoardViewModel {
 
     public private(set) var people: [Person] = []
     public private(set) var savedViews: [SavedView] = []
+    public private(set) var quickFilters: [QuickFilter] = []
+    public private(set) var swimlanes: [Swimlane] = []
+    public private(set) var versions: [Version] = []
+
+    /// Which quick filters are pressed. Several at once mean all of them, so
+    /// they narrow the board rather than competing for it.
+    public var activeQuickFilterIDs: Set<String> = [] {
+        didSet {
+            guard activeQuickFilterIDs != oldValue else { return }
+            applyQuery()
+        }
+    }
+
+    /// The dropdowns beside the search field. Each is one more `AND`.
+    public var facetAssigneeID: String? { didSet { facetChanged(facetAssigneeID, oldValue) } }
+    public var facetEpicID: String? { didSet { facetChanged(facetEpicID, oldValue) } }
+    public var facetLabelID: String? { didSet { facetChanged(facetLabelID, oldValue) } }
+    public var facetType: TaskType? { didSet { facetChanged(facetType, oldValue) } }
+
+    private func facetChanged<T: Equatable>(_ new: T?, _ old: T?) {
+        guard new != old else { return }
+        applyQuery()
+    }
+
+    /// The cards picked out for a bulk edit. Separate from `selectedTaskID`,
+    /// which is the one card the inspector is showing: selecting twenty cards
+    /// to assign them is a different act from opening one to read it.
+    public private(set) var selectedTaskIDs: Set<String> = []
+
+    /// What the last bulk edit replaced. One deep, because a bulk edit is an
+    /// action you either take back straight away or live with.
+    public private(set) var lastBulkEdit: TaskRepository.UndoRecord?
+
+    /// Who this copy of the app belongs to, for `is:mine`.
+    public private(set) var currentPersonID: String?
+
+    /// The lanes the board is cut into, worked out after the query has run so
+    /// that a lane counts only the cards actually on screen.
+    public private(set) var lanes: [BoardLane] = []
+
+    /// Which cards the board's colour view picked out, when cards are coloured
+    /// by a saved view. Empty for every other colour rule.
+    public private(set) var colorQueryMatches: Set<String> = []
+
+    /// Git references already looked up, keyed by card tag. Cleared whenever
+    /// the repository link changes.
+    var gitReferenceCache: [String: [GitReferences.Reference]] = [:]
 
     private let database: Database
     private let boardRepository: BoardRepository
@@ -121,6 +169,10 @@ public final class BoardViewModel {
     private let savedViewRepository: SavedViewRepository
     private let labelRepository: LabelRepository
     private let checklistRepository: ChecklistRepository
+    let versionRepository: VersionRepository
+    let presentationRepository: BoardPresentationRepository
+    let analyticsRepository: AnalyticsRepository
+    let settings: AppSettings
 
     public init(database: Database, clock: any ClockProvider = SystemClock()) {
         self.database = database
@@ -130,7 +182,17 @@ public final class BoardViewModel {
         self.savedViewRepository = SavedViewRepository(database: database, clock: clock)
         self.labelRepository = LabelRepository(database: database)
         self.checklistRepository = ChecklistRepository(database: database, clock: clock)
+        self.versionRepository = VersionRepository(database: database, clock: clock)
+        self.presentationRepository = BoardPresentationRepository(database: database)
+        self.analyticsRepository = AnalyticsRepository(database: database, clock: clock)
+        self.settings = AppSettings(database: database)
     }
+
+    /// The repositories the board's own screens reach for. Everything still
+    /// goes through `perform`; these are handed out so that the analytics and
+    /// version screens do not each need their own copy of the plumbing.
+    var tasks: TaskRepository { taskRepository }
+    var structure: BoardRepository { boardRepository }
 
     // MARK: - Loading
 
@@ -174,9 +236,36 @@ public final class BoardViewModel {
                 savedViews = try savedViewRepository.views(inProject: projectID)
                 labels = try labelRepository.labels(inProject: projectID)
                 epics = try taskRepository.epics(inProject: projectID)
+                versions = try versionRepository.versions(inProject: projectID)
             }
+            colorQueryMatches = try colorMatches()
+            quickFilters = try presentationRepository.quickFilters(inBoard: selectedBoardID)
+            swimlanes = try presentationRepository.swimlanes(inBoard: selectedBoardID)
+            currentPersonID = try settings.currentPersonID
+
+            // A selection outlives a reload only for cards that are still
+            // there; one that has been trashed or moved off the board is no
+            // longer something a bulk edit should silently include.
+            let onBoard = Set(snapshot?.columns.flatMap { $0.tasks.map(\.id) } ?? [])
+            selectedTaskIDs.formIntersection(onBoard)
         }
         loadSelectionDetails()
+    }
+
+    /// The cards the board's colour view selected.
+    ///
+    /// A view that no longer parses colours nothing rather than failing the
+    /// whole load: the board is still perfectly usable in one colour.
+    private func colorMatches() throws -> Set<String> {
+        guard let board = snapshot?.board, board.colorRule == .query,
+              let viewID = board.colorViewID,
+              let view = try savedViewRepository.views(inProject: board.projectID)
+                  .first(where: { $0.id == viewID })
+        else { return [] }
+
+        guard let found = try? taskRepository.tasks(matching: view.query, inProject: board.projectID)
+        else { return [] }
+        return Set(found.map(\.id))
     }
 
     private func loadSelectionDetails() {
@@ -191,15 +280,77 @@ public final class BoardViewModel {
         }
     }
 
+    /// Everything narrowing the board at once: what is typed, which quick
+    /// filters are pressed, and what the facet dropdowns are set to.
+    ///
+    /// They combine as text in the query language rather than as three
+    /// separate passes over the result. That way there is exactly one thing
+    /// the board is asking, it is written in a language the user already has,
+    /// and it can be read back — which is what makes "why is this card
+    /// hidden?" an answerable question.
+    public var effectiveQuery: String {
+        var parts: [String] = []
+
+        let typed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { parts.append("(\(typed))") }
+
+        for filter in quickFilters where activeQuickFilterIDs.contains(filter.id) {
+            parts.append("(\(filter.query))")
+        }
+
+        if let person = person(id: facetAssigneeID) {
+            parts.append("assignee = \(Self.quoted(person.name))")
+        }
+        if let epic = epics.first(where: { $0.id == facetEpicID }) {
+            parts.append("epic = \(Self.quoted(epic.title))")
+        }
+        if let label = labels.first(where: { $0.id == facetLabelID }) {
+            parts.append("label = \(Self.quoted(label.name))")
+        }
+        if let facetType {
+            parts.append("type = \(Self.typeWord(facetType))")
+        }
+
+        return parts.joined(separator: " ")
+    }
+
+    /// A name with a space in it has to be quoted, or the parser reads the
+    /// second word as a separate term.
+    private static func quoted(_ text: String) -> String {
+        "\"" + text.replacingOccurrences(of: "\"", with: "") + "\""
+    }
+
+    private static func typeWord(_ type: TaskType) -> String {
+        switch type {
+        case .epic: "epic"
+        case .story: "story"
+        case .task: "task"
+        case .bug: "bug"
+        }
+    }
+
+    /// Whether anything at all is narrowing the board.
+    public var hasActiveFilters: Bool { !effectiveQuery.isEmpty }
+
+    public func clearFilters() {
+        queryText = ""
+        activeQuickFilterIDs = []
+        facetAssigneeID = nil
+        facetEpicID = nil
+        facetLabelID = nil
+        facetType = nil
+    }
+
     /// Runs the current query against the store and remembers which cards it
     /// matched. Called on every edit to the field and after every reload.
     private func applyQuery() {
-        let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let combined = effectiveQuery
 
-        guard !trimmed.isEmpty else {
+        guard !combined.isEmpty else {
             matchingTaskIDs = nil
             queryFailure = nil
             setShowsTrash(false)
+            rebuildLanes()
             return
         }
 
@@ -209,9 +360,9 @@ public final class BoardViewModel {
             // The board hides trashed cards, so a query about them has to
             // change what was read, not just what is shown — otherwise
             // `is:trashed` filters a set the trash was never in.
-            setShowsTrash(try TaskQueryParser.parse(trimmed).mentionsTrash)
+            setShowsTrash(try TaskQueryParser.parse(combined).mentionsTrash)
 
-            let matches = try taskRepository.tasks(matching: trimmed, inProject: projectID)
+            let matches = try taskRepository.tasks(matching: combined, inProject: projectID)
             matchingTaskIDs = Set(matches.map(\.id))
             queryFailure = nil
         } catch let error as QueryError {
@@ -220,6 +371,74 @@ public final class BoardViewModel {
             queryFailure = error.message
         } catch {
             queryFailure = error.localizedDescription
+        }
+
+        rebuildLanes()
+    }
+
+    /// Works out the lanes for the cards currently on screen.
+    ///
+    /// Each query lane is one more statement against the store, which is why
+    /// this runs after filtering rather than per card: a board with four lanes
+    /// costs four queries however many hundred cards it is showing.
+    private func rebuildLanes() {
+        guard let snapshot else {
+            lanes = []
+            return
+        }
+
+        let visible = visibleColumns.flatMap(\.tasks)
+        guard !visible.isEmpty else {
+            lanes = []
+            return
+        }
+
+        // Only the lanes that can actually claim a card are worth asking about.
+        let needed = swimlanes.filter { $0.pinned || snapshot.board.swimlaneMode == .query }
+
+        var matches: [String: Set<String>] = [:]
+        for lane in needed {
+            guard let found = try? taskRepository.tasks(
+                matching: lane.query, inProject: snapshot.board.projectID
+            ) else {
+                // A lane whose query has stopped parsing claims nothing rather
+                // than everything, and the board carries on without it.
+                continue
+            }
+            matches[lane.id] = Set(found.map(\.id))
+        }
+
+        lanes = SwimlaneGrouping.lanes(
+            for: visible,
+            mode: snapshot.board.swimlaneMode,
+            swimlanes: swimlanes,
+            queryMatches: matches,
+            names: SwimlaneGrouping.Names(
+                epics: Dictionary(epics.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first }),
+                people: Dictionary(people.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }),
+                parents: Dictionary(
+                    snapshot.columns.flatMap(\.tasks).map { ($0.id, $0.title) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            )
+        )
+    }
+
+    /// Whether the board is drawn in lanes at all.
+    public var isLaned: Bool {
+        guard let snapshot else { return false }
+        return snapshot.board.swimlaneMode != .none || lanes.contains(where: \.isPinned)
+    }
+
+    /// One lane's columns, for drawing a row of the board.
+    public func columns(in lane: BoardLane) -> [LoadedColumn] {
+        visibleColumns.map { column in
+            LoadedColumn(
+                column: column.column,
+                status: column.status,
+                statuses: column.statuses,
+                tasks: column.tasks.filter { lane.taskIDs.contains($0.id) }
+            )
         }
     }
 
@@ -235,10 +454,23 @@ public final class BoardViewModel {
 
     // MARK: - Acting
 
-    public func addTask(title: String, toStatus statusID: String) {
-        guard let projectID = snapshot?.columns.first?.status.projectID else { return }
+    /// Adds a card to a column, at the end or at the top.
+    ///
+    /// The top is where the next thing to be picked up goes on a board read
+    /// downwards, so a column needs both — and creating at the top is a create
+    /// followed by a move rather than a second insert path, so the sparse
+    /// ordering and the history entry stay in one place.
+    public func addTask(title: String, toStatus statusID: String, atTop: Bool = false) {
+        guard let projectID = snapshot?.board.projectID else { return }
         perform {
-            try taskRepository.create(inProject: projectID, statusID: statusID, title: title)
+            let created = try taskRepository.create(
+                inProject: projectID, statusID: statusID, title: title
+            )
+            if atTop, let first = snapshot?.columns
+                .first(where: { $0.statuses.contains { $0.id == statusID } })?
+                .tasks.first, first.id != created.id {
+                try taskRepository.move(created.id, toStatus: statusID, after: nil, before: first.id)
+            }
             reloadSnapshot()
         }
     }
@@ -625,5 +857,431 @@ public final class BoardViewModel {
 
     public func dismissFailure() {
         failure = nil
+    }
+}
+
+// MARK: - Milestone 1.5
+
+extension BoardViewModel {
+
+    // MARK: Flags
+
+    public func setFlag(_ flagged: Bool, reason: String = "", for taskID: String) {
+        perform {
+            try tasks.setFlag(flagged, reason: reason, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Estimates and releases
+
+    public func setEstimate(_ estimate: Double?, for taskID: String) {
+        perform {
+            try tasks.setEstimate(estimate, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setVersion(_ versionID: String?, for taskID: String) {
+        perform {
+            try tasks.setVersion(versionID, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func version(id: String?) -> Version? {
+        guard let id else { return nil }
+        return versions.first { $0.id == id }
+    }
+
+    public func createVersion(named name: String, releaseDate: Date? = nil) {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try versionRepository.create(inProject: projectID, name: name, releaseDate: releaseDate)
+            versions = try versionRepository.versions(inProject: projectID)
+        }
+    }
+
+    public func setVersionReleased(_ released: Bool, for versionID: String) {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try versionRepository.setReleased(released, for: versionID)
+            versions = try versionRepository.versions(inProject: projectID)
+        }
+    }
+
+    public func deleteVersion(_ versionID: String) {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try versionRepository.delete(versionID)
+            versions = try versionRepository.versions(inProject: projectID)
+            reloadSnapshot()
+        }
+    }
+
+    public func progress(ofVersion versionID: String) -> ReleaseProgress {
+        (try? versionRepository.progress(ofVersion: versionID))
+            ?? ReleaseProgress(total: 0, done: 0, points: 0, donePoints: 0)
+    }
+
+    // MARK: Who "me" is
+
+    public func setCurrentPerson(_ personID: String?) {
+        perform {
+            try settings.setCurrentPerson(personID)
+            currentPersonID = try settings.currentPersonID
+            // `is:mine` means something different now, so anything asking it
+            // has to be asked again.
+            applyQuery()
+        }
+    }
+
+    // MARK: Quick filters
+
+    public func toggleQuickFilter(_ filterID: String) {
+        if activeQuickFilterIDs.contains(filterID) {
+            activeQuickFilterIDs.remove(filterID)
+        } else {
+            activeQuickFilterIDs.insert(filterID)
+        }
+    }
+
+    public func createQuickFilter(named name: String, query: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.createQuickFilter(inBoard: boardID, name: name, query: query)
+            quickFilters = try presentationRepository.quickFilters(inBoard: boardID)
+        }
+    }
+
+    public func updateQuickFilter(_ filterID: String, name: String, query: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.updateQuickFilter(filterID, name: name, query: query)
+            quickFilters = try presentationRepository.quickFilters(inBoard: boardID)
+        }
+    }
+
+    public func deleteQuickFilter(_ filterID: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.deleteQuickFilter(filterID)
+            quickFilters = try presentationRepository.quickFilters(inBoard: boardID)
+            activeQuickFilterIDs.remove(filterID)
+        }
+    }
+
+    /// Keeps the current query as a quick filter, which is the fastest way to
+    /// get one: find what you want by typing, then pin it to the board.
+    public func saveCurrentQueryAsQuickFilter(named name: String) {
+        createQuickFilter(named: name, query: queryText)
+    }
+
+    // MARK: Swimlanes
+
+    public func setSwimlaneMode(_ mode: SwimlaneMode) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.setSwimlaneMode(mode, for: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    public func createSwimlane(named name: String, query: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.createSwimlane(inBoard: boardID, name: name, query: query)
+            swimlanes = try presentationRepository.swimlanes(inBoard: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    public func updateSwimlane(_ laneID: String, name: String, query: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.updateSwimlane(laneID, name: name, query: query)
+            swimlanes = try presentationRepository.swimlanes(inBoard: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteSwimlane(_ laneID: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.deleteSwimlane(laneID)
+            swimlanes = try presentationRepository.swimlanes(inBoard: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: How the board looks
+
+    public func setCardFields(_ fields: [CardField]) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.setCardFields(fields, for: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Adds or removes one card row, keeping inside the three a card can hold.
+    public func toggleCardField(_ field: CardField) {
+        guard let board = snapshot?.board else { return }
+        var fields = board.cardFields
+
+        if let index = fields.firstIndex(of: field) {
+            fields.remove(at: index)
+        } else {
+            guard fields.count < CardField.maximumPerBoard else {
+                failure = .invalidInput(
+                    field: "card fields",
+                    detail: "A card shows at most \(CardField.maximumPerBoard) extra rows. Turn one off first."
+                )
+                return
+            }
+            fields.append(field)
+        }
+        setCardFields(fields)
+    }
+
+    public func setColorRule(_ rule: CardColorRule, viewID: String? = nil) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.setColorRule(rule, viewID: viewID, for: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setStaleDays(_ days: Int) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.setStaleDays(days, for: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setBoardQuery(_ query: String) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try presentationRepository.setFilterQuery(query, for: boardID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Columns
+
+    public func setWIPMinimum(_ minimum: Int?, for columnID: String) {
+        perform {
+            try structure.setWIPMinimum(minimum, for: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setWIPMeasure(_ measure: WIPMeasure, for columnID: String) {
+        perform {
+            try structure.setWIPMeasure(measure, for: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setBacklog(_ isBacklog: Bool, for columnID: String) {
+        perform {
+            try structure.setBacklog(isBacklog, for: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func mergeColumn(_ otherColumnID: String, into columnID: String) {
+        guard let other = snapshot?.columns.first(where: { $0.id == otherColumnID }) else { return }
+        perform {
+            try structure.mapStatus(other.status.id, toColumn: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func splitStatus(_ statusID: String, outOf columnID: String) {
+        perform {
+            try structure.unmapStatus(statusID, fromColumn: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Selecting several cards
+
+    public var hasSelection: Bool { !selectedTaskIDs.isEmpty }
+
+    public func isPicked(_ taskID: String) -> Bool { selectedTaskIDs.contains(taskID) }
+
+    /// ⌘-click: add this card to the selection, or take it out again.
+    public func togglePicked(_ taskID: String) {
+        if selectedTaskIDs.contains(taskID) {
+            selectedTaskIDs.remove(taskID)
+        } else {
+            selectedTaskIDs.insert(taskID)
+        }
+    }
+
+    /// Shift-click: everything between the last pick and this one, in the
+    /// order the board is drawn rather than the order the ids happen to be in.
+    public func extendPick(to taskID: String) {
+        let ordered = visibleColumns.flatMap(\.tasks).map(\.id)
+        guard let end = ordered.firstIndex(of: taskID) else { return }
+
+        guard let anchor = selectedTaskIDs.compactMap({ ordered.firstIndex(of: $0) }).min() else {
+            selectedTaskIDs = [taskID]
+            return
+        }
+        let range = anchor <= end ? anchor...end : end...anchor
+        selectedTaskIDs.formUnion(ordered[range])
+    }
+
+    public func pickAll() {
+        selectedTaskIDs = Set(visibleColumns.flatMap(\.tasks).map(\.id))
+    }
+
+    public func clearPicks() {
+        selectedTaskIDs = []
+    }
+
+    public var pickedTasks: [BoardTask] {
+        visibleColumns.flatMap(\.tasks).filter { selectedTaskIDs.contains($0.id) }
+    }
+
+    // MARK: Bulk edits
+
+    private func bulk(_ work: () throws -> TaskRepository.UndoRecord) {
+        perform {
+            lastBulkEdit = try work()
+            reloadSnapshot()
+        }
+    }
+
+    public func bulkMove(toStatus statusID: String) {
+        let ids = orderedPicks
+        bulk { try tasks.moveAll(ids, toStatus: statusID) }
+    }
+
+    public func bulkAssign(_ personID: String?) {
+        let ids = orderedPicks
+        bulk { try tasks.setAssigneeAll(personID, for: ids) }
+    }
+
+    public func bulkPriority(_ priority: Priority) {
+        let ids = orderedPicks
+        bulk { try tasks.setPriorityAll(priority, for: ids) }
+    }
+
+    public func bulkFlag(_ flagged: Bool, reason: String = "") {
+        let ids = orderedPicks
+        bulk { try tasks.setFlagAll(flagged, reason: reason, for: ids) }
+    }
+
+    public func bulkVersion(_ versionID: String?) {
+        let ids = orderedPicks
+        bulk { try tasks.setVersionAll(versionID, for: ids) }
+    }
+
+    public func bulkDueDate(_ due: Date?) {
+        let ids = orderedPicks
+        bulk { try tasks.setDueDateAll(due, for: ids) }
+    }
+
+    public func bulkTrash() {
+        let ids = orderedPicks
+        bulk { try tasks.setTrashedAll(true, for: ids) }
+        clearPicks()
+    }
+
+    /// Board order, not set order: a bulk move should land the cards in the
+    /// order they were picked up, and a `Set` has no order to preserve.
+    private var orderedPicks: [String] {
+        visibleColumns.flatMap(\.tasks).map(\.id).filter { selectedTaskIDs.contains($0) }
+    }
+
+    public func undoLastBulkEdit() {
+        guard let record = lastBulkEdit else { return }
+        perform {
+            try tasks.restore(record)
+            lastBulkEdit = nil
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Analytics
+
+    public func cumulativeFlow(days: Int = 30) -> [FlowPoint] {
+        guard let projectID = snapshot?.board.projectID else { return [] }
+        return (try? analyticsRepository.cumulativeFlow(inProject: projectID, days: days)) ?? []
+    }
+
+    public func controlChart(days: Int = 90) -> [CycleTimePoint] {
+        guard let projectID = snapshot?.board.projectID else { return [] }
+        return (try? analyticsRepository.controlChart(inProject: projectID, days: days)) ?? []
+    }
+
+    public func burnup(taskIDs: Set<String>, days: Int = 60) -> [BurnupPoint] {
+        (try? analyticsRepository.burnup(taskIDs: taskIDs, days: days)) ?? []
+    }
+
+    public func history(of taskID: String) -> [StatusChange] {
+        (try? tasks.history(ofTask: taskID)) ?? []
+    }
+
+    public func statusName(_ statusID: String?) -> String {
+        guard let statusID else { return "—" }
+        return snapshot?.columns
+            .flatMap(\.statuses)
+            .first { $0.id == statusID }?.name ?? "Elsewhere"
+    }
+}
+
+// MARK: - The optional link to a local checkout
+
+extension BoardViewModel {
+
+    public var repositoryLink: RepositoryLink? {
+        guard let projectID = snapshot?.board.projectID else { return nil }
+        return try? RepositoryLinkRepository(database: database).link(forProject: projectID)
+    }
+
+    public func linkRepository() {
+        guard let projectID = snapshot?.board.projectID else { return }
+        guard let chosen = RepositoryAccess.chooseFolder() else { return }
+
+        perform {
+            try RepositoryLinkRepository(database: database).setLink(
+                projectID: projectID, path: chosen.url.path, bookmark: chosen.bookmark
+            )
+            gitReferenceCache = [:]
+            reloadSnapshot()
+        }
+    }
+
+    public func unlinkRepository() {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try RepositoryLinkRepository(database: database).removeLink(forProject: projectID)
+            gitReferenceCache = [:]
+            reloadSnapshot()
+        }
+    }
+
+    /// The branches and commits naming this card.
+    ///
+    /// Read once per board load and kept, because scanning a checkout means
+    /// touching the filesystem and the inspector asks on every redraw. The
+    /// cache is thrown away whenever the link changes.
+    public func gitReferences(for task: BoardTask) -> [GitReferences.Reference] {
+        let tag = self.tag(for: task)
+
+        if let cached = gitReferenceCache[tag] { return cached }
+        guard let link = repositoryLink else { return [] }
+
+        let found = RepositoryAccess.withAccess(to: link) { url in
+            GitReferences.references(in: url, matching: [tag])
+        } ?? []
+
+        gitReferenceCache[tag] = found
+        return found
     }
 }

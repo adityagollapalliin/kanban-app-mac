@@ -18,7 +18,7 @@ struct TaskDetailView: View {
     let model: BoardViewModel
 
     private enum Field: Hashable {
-        case title, description
+        case title, description, flag, estimate
     }
 
     @State private var title: String = ""
@@ -28,17 +28,24 @@ struct TaskDetailView: View {
     @State private var newChecklistText = ""
     @State private var newSubtaskTitle = ""
     @State private var newLabelName = ""
+    @State private var flagReason = ""
+    @State private var estimateText = ""
+    @State private var isShowingHistory = false
     @FocusState private var focused: Field?
 
     var body: some View {
         Form {
             titleSection
+            flagSection
             placementSection
             dueSection
+            estimateSection
             labelsSection
             checklistSection
             subtasksSection
             notesSection
+            repositorySection
+            historySection
             actionsSection
         }
         .formStyle(.grouped)
@@ -48,14 +55,155 @@ struct TaskDetailView: View {
         .onChange(of: focused) { previous, _ in
             if previous == .title { commitTitle() }
             if previous == .description { commitDescription() }
+            if previous == .flag { commitFlagReason() }
+            if previous == .estimate { commitEstimate() }
         }
         .onDisappear {
             commitTitle()
             commitDescription()
+            commitFlagReason()
+            commitEstimate()
         }
     }
 
     // MARK: - Sections
+
+    /// The flag, above everything but the title.
+    ///
+    /// What is standing in a card's way is the first thing anyone opening it
+    /// needs to know — ahead of where it sits, when it is due, or who has it.
+    private var flagSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { task.flagged },
+                set: { model.setFlag($0, reason: $0 ? flagReason : "", for: task.id) }
+            )) {
+                Label("Flagged", systemImage: task.flagged ? "flag.fill" : "flag")
+                    .foregroundStyle(task.flagged ? Color.red : .primary)
+            }
+
+            if task.flagged {
+                TextField("What is in the way?", text: $flagReason)
+                    .focused($focused, equals: .flag)
+                    .onSubmit(commitFlagReason)
+
+                Text("Searchable: `flag = \"legal\"` finds everything held up by the same thing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Points and the release, together: both are answers to "how big is this
+    /// and when is it going out".
+    private var estimateSection: some View {
+        Section("Size and release") {
+            TextField("Points", text: $estimateText)
+                .focused($focused, equals: .estimate)
+                .onSubmit(commitEstimate)
+
+            Picker("Release", selection: versionBinding) {
+                Text("None").tag(String?.none)
+                ForEach(model.versions) { version in
+                    Text(version.name).tag(String?.some(version.id))
+                }
+            }
+            .disabled(model.versions.isEmpty)
+
+            // The column clock, in words rather than dots, because there is
+            // room here for the exact answer.
+            LabeledContent("In this column") {
+                let days = task.daysInColumn(now: .now)
+                Text(days == 1 ? "1 day" : "\(days) days")
+                    .foregroundStyle(isStale ? Color.orange : .secondary)
+            }
+        }
+    }
+
+    /// Branches and commits in the linked checkout that name this card.
+    ///
+    /// Absent unless a repository has been linked, which is off by default.
+    /// Nothing is fetched: this is what is already on this Mac.
+    @ViewBuilder
+    private var repositorySection: some View {
+        let references = model.gitReferences(for: task)
+        if !references.isEmpty {
+            Section("In the repository") {
+                ForEach(references) { reference in
+                    Label {
+                        Text(reference.text)
+                            .font(.caption.monospaced())
+                            .lineLimit(2)
+                    } icon: {
+                        Image(systemName: reference.kind == .branch ? "arrow.triangle.branch" : "checkmark.seal")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text("Read from the local checkout. Nothing is fetched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Where the card has been, newest first.
+    private var historySection: some View {
+        Section {
+            DisclosureGroup("History", isExpanded: $isShowingHistory) {
+                let history = model.history(of: task.id).reversed()
+                ForEach(Array(history)) { change in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(change.at.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        if let from = change.fromStatusID {
+                            Text("\(model.statusName(from)) → \(model.statusName(change.toStatusID))")
+                                .font(.caption)
+                        } else {
+                            Text("Created in \(model.statusName(change.toStatusID))")
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var isStale: Bool {
+        task.daysInColumn(now: .now) >= (model.snapshot?.board.staleDays ?? 3)
+    }
+
+    private var versionBinding: Binding<String?> {
+        Binding(
+            get: { task.versionID },
+            set: { model.setVersion($0, for: task.id) }
+        )
+    }
+
+    private func commitFlagReason() {
+        let trimmed = flagReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard task.flagged, trimmed != task.flagReason else { return }
+        model.setFlag(true, reason: trimmed, for: task.id)
+    }
+
+    /// An empty field means unestimated, which is different from zero: a card
+    /// nobody has sized is not a card everyone agreed was free.
+    private func commitEstimate() {
+        let trimmed = estimateText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmed.isEmpty else {
+            if task.estimate != nil { model.setEstimate(nil, for: task.id) }
+            return
+        }
+        guard let value = Double(trimmed) else {
+            estimateText = task.estimate.map { String(format: "%g", $0) } ?? ""
+            return
+        }
+        guard value != task.estimate else { return }
+        model.setEstimate(value, for: task.id)
+    }
 
     private var titleSection: some View {
         Section {
@@ -283,6 +431,8 @@ struct TaskDetailView: View {
         title = task.title
         descriptionMarkdown = task.descriptionMarkdown
         hasDueDate = task.dueDate != nil
+        flagReason = task.flagReason
+        estimateText = task.estimate.map { String(format: "%g", $0) } ?? ""
         dueDate = task.dueDate ?? Date()
     }
 

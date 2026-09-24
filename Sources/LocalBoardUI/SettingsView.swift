@@ -12,6 +12,8 @@ public struct SettingsView: View {
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
             PeopleSettingsView()
                 .tabItem { Label("People", systemImage: "person.2") }
+            RepositorySettingsView()
+                .tabItem { Label("Repository", systemImage: "arrow.triangle.branch") }
             PrivacySettingsView()
                 .tabItem { Label("Privacy", systemImage: "lock.shield") }
         }
@@ -240,5 +242,80 @@ struct PeopleSettingsView: View {
         model.createPerson(named: name)
         newName = ""
         addFieldFocused = true
+    }
+}
+
+/// Who this copy of the app belongs to, and the optional link to a checkout.
+///
+/// Both are per-file rather than per-Mac, which is the right place for them:
+/// `is:mine` has to mean something on whichever machine opens the board, and a
+/// repository link belongs to the project it is about.
+struct RepositorySettingsView: View {
+
+    @Environment(AppEnvironment.self) private var environment
+
+    private var model: BoardViewModel? { environment.board }
+
+    var body: some View {
+        Form {
+            Section("Who you are") {
+                if let model {
+                    Picker("Me", selection: Binding(
+                        get: { model.currentPersonID },
+                        set: { model.setCurrentPerson($0) }
+                    )) {
+                        Text("Nobody").tag(String?.none)
+                        ForEach(model.people) { person in
+                            Text(person.name).tag(String?.some(person.id))
+                        }
+                    }
+                    .disabled(model.people.isEmpty)
+
+                    Text(model.people.isEmpty
+                         ? "Add someone in People first."
+                         : "`is:mine` and the My Tasks filter follow this. It is stored with the board, not with this Mac, so it travels with the file.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Open a board first.").foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Linked repository") {
+                if let model, let link = model.repositoryLink {
+                    Text(link.path)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+
+                    HStack {
+                        Button("Change…") { model.linkRepository() }
+                        Button("Unlink", role: .destructive) { model.unlinkRepository() }
+                    }
+                } else if let model {
+                    Button("Link a Folder…", systemImage: "folder") {
+                        model.linkRepository()
+                    }
+                } else {
+                    Text("Open a board first.").foregroundStyle(.secondary)
+                }
+
+                // Saying exactly what it does, because "link a repository" in
+                // most tools means an account and a token.
+                Text("""
+                    Off by default. A card's inspector then shows the branches and commits \
+                    on this Mac that mention its key.
+
+                    Read only. Nothing is written into the folder, nothing is fetched, and \
+                    no remote is contacted — the app makes no network connections at all.
+                    """)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 8)
     }
 }

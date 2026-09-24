@@ -8,6 +8,8 @@ struct BoardView: View {
     @Bindable var model: BoardViewModel
     let externalChangeCount: Int
 
+    @Environment(\.openWindow) private var openWindow
+
     @State private var isNamingView = false
     @State private var newViewName = ""
 
@@ -24,6 +26,37 @@ struct BoardView: View {
 
     @State private var renamingBoardID: String?
     @State private var renamedBoardName = ""
+
+    @State private var isEditingSwimlanes = false
+    @State private var screen: BoardScreen = .board
+    @State private var isEditingBoardQuery = false
+    @State private var boardQuery = ""
+
+    /// Which of the board's screens is showing. The board, the work waiting to
+    /// start, the releases it is going into, and what the history says about
+    /// all of it — four views of one project rather than four places.
+    enum BoardScreen: String, CaseIterable, Identifiable {
+        case board, backlog, releases, analytics
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .board: "Board"
+            case .backlog: "Backlog"
+            case .releases: "Releases"
+            case .analytics: "Analytics"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .board: "rectangle.split.3x1"
+            case .backlog: "tray.2"
+            case .releases: "shippingbox"
+            case .analytics: "chart.xyaxis.line"
+            }
+        }
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -189,8 +222,9 @@ struct BoardView: View {
                 queryHint(incomplete)
             }
 
-            if let snapshot = model.snapshot {
-                board(snapshot)
+            if model.snapshot != nil {
+                if screen == .board { QuickFilterBar(model: model) }
+                currentScreen
             } else {
                 ContentUnavailableView(
                     "No board selected",
@@ -199,32 +233,22 @@ struct BoardView: View {
                 )
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if model.hasSelection {
+                BulkActionBar(model: model)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: model.hasSelection)
         .navigationTitle(model.snapshot?.board.name ?? AppIdentity.displayName)
         .navigationSubtitle(subtitle)
         .searchable(
             text: $model.queryText,
             placement: .toolbar,
-            prompt: "due < +7d   priority >= high   is:overdue"
+            prompt: "due < +7d   priority >= high   is:flagged   days >= 5"
         )
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    newViewName = ""
-                    isNamingView = true
-                } label: {
-                    // Spelled out, not just the icon: a toolbar bookmark glyph
-                    // on its own is a rebus, and this is not an action anyone
-                    // can guess from a symbol.
-                    Label("Save View", systemImage: "bookmark")
-                        .labelStyle(.titleAndIcon)
-                }
-                .disabled(!model.canSaveCurrentQuery)
-                .help(model.canSaveCurrentQuery
-                      ? "Keep this query under a name"
-                      : "Type a query to save it as a view")
-            }
-        }
+        .toolbar { toolbarContent }
         .sheet(isPresented: $isNamingView) { namingSheet }
+        .sheet(isPresented: $isEditingSwimlanes) { SwimlaneEditor(model: model) }
         .alert("New column", isPresented: $isAddingColumn) {
             TextField("Name", text: $newColumnName)
             Button("Cancel", role: .cancel) {}
@@ -261,28 +285,82 @@ struct BoardView: View {
                 if let boardID = renamingBoardID { model.renameBoard(boardID, to: renamedBoardName) }
             }
         }
+        .alert("Board from a query", isPresented: $isEditingBoardQuery) {
+            TextField("Query, or empty for the whole project", text: $boardQuery)
+            Button("Cancel", role: .cancel) {}
+            Button("Apply") { model.setBoardQuery(boardQuery) }
+        } message: {
+            Text("A board defined by a question gathers whatever answers it, from every project rather than one.")
+        }
     }
 
-    /// Sits where the next column would be, which is where someone looks for
-    /// it — rather than in a menu they would have to go hunting through.
-    private var addColumnButton: some View {
-        Button {
-            newColumnName = ""
-            isAddingColumn = true
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.title3)
-                Text("Add Column")
-                    .font(.caption)
+    @ViewBuilder
+    private var currentScreen: some View {
+        switch screen {
+        case .board:
+            BoardCanvas(model: model, onOpenInWindow: openInWindow) {
+                newColumnName = ""
+                isAddingColumn = true
             }
-            .foregroundStyle(.secondary)
-            .frame(width: 160)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
+        case .backlog:
+            BacklogView(model: model, onOpenInWindow: openInWindow) { screen = .board }
+        case .releases:
+            ReleasesView(model: model)
+        case .analytics:
+            AnalyticsView(model: model)
         }
-        .buttonStyle(.plain)
-        .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Picker("Screen", selection: $screen) {
+                ForEach(BoardScreen.allCases) { option in
+                    Label(option.label, systemImage: option.symbol).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelStyle(.iconOnly)
+            .help("Board, backlog, releases, analytics")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            BoardSettingsMenu(model: model)
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button("Edit Swimlanes…", systemImage: "arrow.left.and.right.text.vertical") {
+                    isEditingSwimlanes = true
+                }
+                Button("Board From a Query…", systemImage: "line.3.horizontal.decrease.circle") {
+                    boardQuery = model.snapshot?.board.filterQuery ?? ""
+                    isEditingBoardQuery = true
+                }
+                Divider()
+                Button("Select All Cards", systemImage: "checklist") { model.pickAll() }
+                    .disabled(model.visibleTaskCount == 0)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                newViewName = ""
+                isNamingView = true
+            } label: {
+                // Spelled out, not just the icon: a toolbar bookmark glyph
+                // on its own is a rebus, and this is not an action anyone
+                // can guess from a symbol.
+                Label("Save View", systemImage: "bookmark")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!model.canSaveCurrentQuery)
+            .help(model.canSaveCurrentQuery
+                  ? "Keep this query under a name"
+                  : "Type a query to save it as a view")
+        }
     }
 
     private var namingSheet: some View {
@@ -323,13 +401,30 @@ struct BoardView: View {
     }
 
     private var subtitle: String {
-        guard model.snapshot != nil else { return "" }
+        guard let snapshot = model.snapshot else { return "" }
         let total = model.totalTaskCount
 
-        guard model.isFiltering else {
-            return total == 1 ? "1 card" : "\(total) cards"
+        var parts: [String] = []
+        if model.isFiltering {
+            parts.append("\(model.visibleTaskCount) of \(total) cards")
+        } else {
+            parts.append(total == 1 ? "1 card" : "\(total) cards")
         }
-        return "\(model.visibleTaskCount) of \(total) cards"
+
+        // A board defined by a query is a different kind of board, and the
+        // subtitle is where that belongs — it explains why cards from other
+        // projects are on screen.
+        if snapshot.board.isQueryBoard { parts.append("from a query") }
+        if snapshot.board.swimlaneMode != .none {
+            parts.append("by \(snapshot.board.swimlaneMode.label.lowercased())")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// ⌥-click, or the card's menu: the card in a window of its own, so two
+    /// cards can be read side by side.
+    private func openInWindow(_ taskID: String) {
+        openWindow(id: TaskWindow.identifier, value: taskID)
     }
 
     /// A query still being typed is not an error to apologise for. It is said
@@ -349,21 +444,6 @@ struct BoardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.4))
         .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private func board(_ snapshot: BoardSnapshot) -> some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(model.visibleColumns) { column in
-                    BoardColumnView(column: column, model: model)
-                }
-
-                addColumnButton
-            }
-            .padding(16)
-            .frame(maxHeight: .infinity, alignment: .top)
-        }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
     /// A failed action says what failed and what to do, and goes away when the

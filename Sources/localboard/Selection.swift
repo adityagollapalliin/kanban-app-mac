@@ -119,6 +119,12 @@ enum Parse {
         dayFormatter.string(from: date)
     }
 
+    /// Points, without the trailing `.0` on a whole number — teams write 3,
+    /// not 3.0, and a table full of `.0` is harder to scan.
+    static func number(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%g", value)
+    }
+
     /// `--due 2026-10-01`.
     static func date(_ text: String) throws -> Date {
         let formatter = dayFormatter
