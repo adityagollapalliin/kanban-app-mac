@@ -110,6 +110,30 @@ struct BoardViewModelTests {
         #expect(model.selectedTask == nil)
     }
 
+    /// Clicking the open card again closes it, the way clicking it opened it.
+    @Test("Clicking a card toggles the inspector rather than only opening it")
+    func selectionToggles() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "First", toStatus: status)
+        model.addTask(title: "Second", toStatus: status)
+
+        let first = try #require(column(model, 0).tasks.first { $0.title == "First" })
+        let second = try #require(column(model, 0).tasks.first { $0.title == "Second" })
+
+        model.toggleSelection(of: first.id)
+        #expect(model.selectedTaskID == first.id)
+
+        // The same card again closes it.
+        model.toggleSelection(of: first.id)
+        #expect(model.selectedTaskID == nil)
+
+        // A different card moves the inspector rather than closing it.
+        model.toggleSelection(of: first.id)
+        model.toggleSelection(of: second.id)
+        #expect(model.selectedTaskID == second.id)
+    }
+
     /// The inspector must not be left describing a card the board no longer
     /// shows.
     @Test("Trashing the open card closes the inspector")

@@ -59,11 +59,11 @@ struct TaskCardView: View {
                               lineWidth: isSelected ? 2 : 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { model.selectedTaskID = task.id }
+        .onTapGesture { model.toggleSelection(of: task.id) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(tag). \(task.title)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityHint("Opens the card for editing")
+        .accessibilityHint(isSelected ? "Closes the card" : "Opens the card for editing")
         .contextMenu {
             Button("Get Info", systemImage: "info.circle") {
                 model.selectedTaskID = task.id

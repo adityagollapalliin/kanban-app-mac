@@ -73,6 +73,14 @@ public final class BoardViewModel {
     /// so closing is never something the user has to do after a trash.
     public var selectedTaskID: String?
 
+    /// Clicking a card opens it; clicking the open one closes it again. The
+    /// card is the control, so it has to work in both directions — an
+    /// inspector you can only open from here and must close somewhere else is
+    /// a one-way door.
+    public func toggleSelection(of taskID: String) {
+        selectedTaskID = selectedTaskID == taskID ? nil : taskID
+    }
+
     public var selectedTask: BoardTask? {
         guard let selectedTaskID else { return nil }
         return snapshot?.columns.lazy.flatMap(\.tasks).first { $0.id == selectedTaskID }
