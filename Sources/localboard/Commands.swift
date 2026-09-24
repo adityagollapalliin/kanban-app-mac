@@ -175,7 +175,34 @@ func seedCommand(_ arguments: Arguments, database: Database) -> Int32 {
             )
         }
 
-        Output.line("Added \(samples.count) sample cards to \(project.name).")
+        // `--count 1000` is the board to measure against: a thousand cards is
+        // the size the performance budget is written for, and typing them in
+        // by hand is not a test anybody runs twice.
+        let bulk = max(0, (try arguments.option("count").map(Parse.count)) ?? 0)
+        if bulk > 0 {
+            let verbs = ["Review", "Fix", "Write", "Refactor", "Investigate", "Document", "Remove"]
+            let nouns = ["the parser", "the export", "the drag handler", "the migration",
+                         "the sidebar", "the query compiler", "the icon", "the backlog"]
+
+            try database.transaction {
+                for index in 0..<bulk {
+                    try tasks.create(
+                        inProject: project.id,
+                        statusID: statuses[index % statuses.count].id,
+                        title: "\(verbs[index % verbs.count]) \(nouns[(index / verbs.count) % nouns.count]) #\(index + 1)",
+                        type: TaskType.allCases[index % TaskType.allCases.count],
+                        priority: Priority.allCases[index % Priority.allCases.count],
+                        dueDate: index % 3 == 0
+                            ? Date().addingTimeInterval(Double(index % 30 - 10) * 86_400)
+                            : nil
+                    )
+                }
+            }
+            Output.line("Added \(samples.count + bulk) cards to \(project.name).")
+        } else {
+            Output.line("Added \(samples.count) sample cards to \(project.name).")
+        }
+
         Output.line("Remove them again with `localboard list` and the app's trash.")
         return ExitStatus.success
     }

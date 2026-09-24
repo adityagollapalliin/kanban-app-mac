@@ -90,8 +90,11 @@ public struct Board: Sendable, Equatable, Identifiable, Codable {
 
     /// How the board is cut into lanes.
     public var swimlaneMode: SwimlaneMode
-    /// The extra rows shown on every card, at most three.
+    /// The extra rows shown on every card, at most three between them.
     public var cardFields: [CardField]
+    /// The project's own fields, shown on the card alongside the built-in
+    /// rows and counted against the same limit.
+    public var customCardFieldIDs: [String]
     public var colorRule: CardColorRule
     /// Which saved view colours the cards, when `colorRule` is `.query`.
     public var colorViewID: String?
@@ -102,6 +105,9 @@ public struct Board: Sendable, Equatable, Identifiable, Codable {
     /// ordinary kind; anything else and the board gathers whatever matches,
     /// wherever it lives.
     public var filterQuery: String
+
+    /// How many rows the cards are showing, counting both kinds.
+    public var cardRowCount: Int { cardFields.count + customCardFieldIDs.count }
 
     /// Whether this board's cards come from a query rather than one project.
     public var isQueryBoard: Bool {
@@ -116,6 +122,7 @@ public struct Board: Sendable, Equatable, Identifiable, Codable {
         createdAt: Date,
         swimlaneMode: SwimlaneMode = .none,
         cardFields: [CardField] = [.dueDate, .labels],
+        customCardFieldIDs: [String] = [],
         colorRule: CardColorRule = .none,
         colorViewID: String? = nil,
         staleDays: Int = 3,
@@ -129,6 +136,7 @@ public struct Board: Sendable, Equatable, Identifiable, Codable {
         self.createdAt = createdAt
         self.swimlaneMode = swimlaneMode
         self.cardFields = cardFields
+        self.customCardFieldIDs = customCardFieldIDs
         self.colorRule = colorRule
         self.colorViewID = colorViewID
         self.staleDays = staleDays

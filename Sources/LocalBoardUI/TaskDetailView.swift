@@ -40,6 +40,8 @@ struct TaskDetailView: View {
             placementSection
             dueSection
             estimateSection
+            SprintAndTimerSection(task: task, model: model)
+            CustomFieldSection(task: task, model: model)
             labelsSection
             checklistSection
             subtasksSection

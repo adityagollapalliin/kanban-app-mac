@@ -21,8 +21,12 @@ public struct BoardPresentationRepository {
     }
 
     /// The board's chosen extra card rows, trimmed to what a card can carry.
-    public func setCardFields(_ fields: [CardField], for boardID: String) throws {
-        try updateBoard(boardID, "card_fields = ?", [CardField.stored(fields)])
+    public func setCardFields(
+        _ fields: [CardField],
+        custom customIDs: [String] = [],
+        for boardID: String
+    ) throws {
+        try updateBoard(boardID, "card_fields = ?", [CardField.stored(fields, custom: customIDs)])
     }
 
     /// Colouring by a saved view needs the view; every other rule must forget

@@ -144,15 +144,39 @@ public enum CardField: String, Sendable, CaseIterable, Codable {
     /// at a glance rather than a form.
     public static let maximumPerBoard = 3
 
-    /// Parses the stored `due,labels` form, dropping anything a newer build
-    /// wrote that this one does not know.
+    /// A project's own field, written into the same list as `cf:<id>`.
+    ///
+    /// One stored string rather than two settings, because the three-row cap
+    /// has to be shared: two lists each capped at three would let a board show
+    /// six rows between them.
+    static let customPrefix = "cf:"
+
+    /// Parses the stored `due,labels,cf:1234` form, dropping anything a newer
+    /// build wrote that this one does not know.
     public static func list(from stored: String) -> [CardField] {
-        stored.split(separator: ",")
-            .compactMap { CardField(rawValue: $0.trimmingCharacters(in: .whitespaces)) }
+        parts(of: stored).compactMap(CardField.init(rawValue:))
     }
 
-    public static func stored(_ fields: [CardField]) -> String {
-        fields.prefix(maximumPerBoard).map(\.rawValue).joined(separator: ",")
+    /// The ids of the project's own fields named in the same list.
+    public static func customIDs(from stored: String) -> [String] {
+        parts(of: stored)
+            .filter { $0.hasPrefix(customPrefix) }
+            .map { String($0.dropFirst(customPrefix.count)) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// How many rows a stored list adds up to, counting both kinds.
+    public static func count(in stored: String) -> Int {
+        list(from: stored).count + customIDs(from: stored).count
+    }
+
+    public static func stored(_ fields: [CardField], custom customIDs: [String] = []) -> String {
+        let all = fields.map(\.rawValue) + customIDs.map { customPrefix + $0 }
+        return all.prefix(maximumPerBoard).joined(separator: ",")
+    }
+
+    private static func parts(of stored: String) -> [String] {
+        stored.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 

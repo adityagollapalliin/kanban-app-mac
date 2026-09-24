@@ -256,6 +256,31 @@ struct LaneTests {
         #expect(model.columns(in: model.lanes[0]).first?.tasks.count == 1)
     }
 
+    /// The heading's count and the cards drawn beneath it come from two
+    /// different places, and this is the contract that they agree. It is worth
+    /// saying out loud because they once did not: a `LazyVStack` nested in the
+    /// board's two-way scroll view decided none of itself was visible, and
+    /// lanes counted cards they then failed to draw. That was a rendering
+    /// fault this test could not have caught — but the contract is still the
+    /// thing the rendering has to honour.
+    @Test("A lane's columns hold exactly the cards its heading counted")
+    func laneColumnsMatchTheCount() throws {
+        let model = BoardViewModel(database: try makeDatabase())
+        model.load()
+        let columns = model.visibleColumns
+        model.addTask(title: "Urgent", toStatus: columns[1].status.id)
+        model.addTask(title: "Ordinary", toStatus: columns[0].status.id)
+
+        let urgent = try #require(model.visibleColumns[1].tasks.first)
+        model.setPriority(.highest, for: urgent.id)
+
+        let lane = try #require(model.lanes.first { $0.isPinned })
+        let drawn = model.columns(in: lane).flatMap(\.tasks)
+
+        #expect(lane.taskIDs.count == 1)
+        #expect(drawn.map(\.id) == [urgent.id])
+    }
+
     @Test("A lane counts only the cards a filter left showing")
     func lanesFollowTheFilter() throws {
         let model = BoardViewModel(database: try makeDatabase())

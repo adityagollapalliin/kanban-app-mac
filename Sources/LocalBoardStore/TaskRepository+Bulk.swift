@@ -30,6 +30,15 @@ extension TaskRepository {
         UndoRecord(label: label, tasks: taskIDs.compactMap { try? task(id: $0) })
     }
 
+    /// The state of some cards right now, to put back later.
+    ///
+    /// Public so the view model can take one before an ordinary single-card
+    /// edit: undo works the same way whether one card changed or twenty, and
+    /// two mechanisms for that would be one too many.
+    public func snapshot(_ taskIDs: [String], label: String) -> UndoRecord {
+        capture(taskIDs, label: label)
+    }
+
     // MARK: - Bulk edits
 
     @discardableResult
@@ -112,15 +121,25 @@ extension TaskRepository {
             for previous in record.tasks {
                 guard let current = try? task(id: previous.id) else { continue }
 
+                // Every scalar field a card has, so one mechanism covers both
+                // a bulk edit and a single mistyped title. Anything living in
+                // another table — labels, checklist, comments — is not here,
+                // and the undo stack only ever holds edits this can reverse.
                 try update(
                     previous.id,
                     """
-                    assignee_id = ?, priority = ?, due_date = ?, version_id = ?,
+                    title = ?, description_md = ?, type = ?, priority = ?,
+                    assignee_id = ?, due_date = ?, start_date = ?, estimate = ?,
+                    version_id = ?, sprint_id = ?, parent_id = ?, epic_id = ?,
                     flagged = ?, flag_reason = ?, trashed = ?
                     """,
                     [
-                        previous.assigneeID.sqlValue, previous.priority.rawValue,
-                        previous.dueDate.sqlValue, previous.versionID.sqlValue,
+                        previous.title, previous.descriptionMarkdown,
+                        previous.type.rawValue, previous.priority.rawValue,
+                        previous.assigneeID.sqlValue, previous.dueDate.sqlValue,
+                        previous.startDate.sqlValue, previous.estimate.sqlValue,
+                        previous.versionID.sqlValue, previous.sprintID.sqlValue,
+                        previous.parentID.sqlValue, previous.epicID.sqlValue,
                         previous.flagged, previous.flagReason, previous.trashed,
                     ]
                 )

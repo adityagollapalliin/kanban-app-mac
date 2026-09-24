@@ -13,21 +13,68 @@ struct BoardCanvas: View {
     var onOpenInWindow: ((String) -> Void)?
     var onAddColumn: () -> Void
 
+    @State private var lasso: Lasso?
+    @State private var frames: [String: CGRect] = [:]
+
+    /// Named so that card frames and the drag are measured against the same
+    /// origin, and stay in step as the board scrolls.
+    private static let space = "board"
+
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
-            if model.isLaned {
-                lanedBoard
-            } else {
-                plainBoard
+            Group {
+                if model.isLaned {
+                    lanedBoard
+                } else {
+                    plainBoard
+                }
             }
+            // Behind the columns, so a drag starting on a card still drags the
+            // card and only a drag starting on empty board draws a lasso.
+            .background(lassoCatcher)
+            .overlay { if let lasso, lasso.isMeaningful { LassoOverlay(lasso: lasso) } }
+            .onPreferenceChange(CardFrames.self) { frames = $0 }
+            .coordinateSpace(name: Self.space)
         }
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// The empty board, which is both where a lasso starts and what you click
+    /// to clear a selection.
+    private var lassoCatcher: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+                    .onChanged { value in
+                        if lasso == nil {
+                            lasso = Lasso(start: value.startLocation, current: value.location)
+                            // Shift or ⌘ adds to what is already picked; a
+                            // plain drag starts again, exactly as a click does.
+                            let adding = NSEvent.modifierFlags.contains(.shift)
+                                || NSEvent.modifierFlags.contains(.command)
+                            if !adding { model.clearPicks() }
+                        }
+                        lasso?.current = value.location
+                        guard let lasso, lasso.isMeaningful else { return }
+                        model.pick(frames.filter { lasso.covers($0.value) }.map(\.key), adding: true)
+                    }
+                    .onEnded { _ in
+                        // A drag too small to be a lasso was a click on empty
+                        // space, which means "never mind".
+                        if lasso?.isMeaningful != true { model.clearPicks() }
+                        lasso = nil
+                    }
+            )
     }
 
     private var plainBoard: some View {
         HStack(alignment: .top, spacing: 12) {
             ForEach(model.visibleColumns) { column in
-                BoardColumnView(column: column, model: model, onOpenInWindow: onOpenInWindow)
+                BoardColumnView(
+                    column: column, model: model,
+                    coordinateSpace: Self.space, onOpenInWindow: onOpenInWindow
+                )
             }
             addColumnButton
         }
@@ -43,7 +90,10 @@ struct BoardCanvas: View {
             laneHeaderRow
 
             ForEach(model.lanes) { lane in
-                LaneRow(lane: lane, model: model, onOpenInWindow: onOpenInWindow)
+                LaneRow(
+                    lane: lane, model: model,
+                    coordinateSpace: Self.space, onOpenInWindow: onOpenInWindow
+                )
             }
 
             if model.lanes.isEmpty {
@@ -90,6 +140,7 @@ struct BoardCanvas: View {
 private struct LaneRow: View {
     let lane: BoardLane
     let model: BoardViewModel
+    let coordinateSpace: String
     var onOpenInWindow: ((String) -> Void)?
 
     @State private var isCollapsed = false
@@ -108,6 +159,7 @@ private struct LaneRow: View {
                             model: model,
                             laneID: lane.id,
                             isLane: true,
+                            coordinateSpace: coordinateSpace,
                             onOpenInWindow: onOpenInWindow
                         )
                     }

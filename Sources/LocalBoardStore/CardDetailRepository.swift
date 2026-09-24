@@ -188,6 +188,32 @@ public struct CardDetailRepository {
         return found.sorted { $0.1.rawValue < $1.1.rawValue }
     }
 
+    /// Every link in a project, keyed by the card each one is read from.
+    ///
+    /// One query rather than one per card. The timeline draws an arrow for
+    /// every dependency on screen, and asking the store per card per redraw is
+    /// how a chart of two hundred cards becomes a chart that stutters.
+    public func linksByTask(inProject projectID: String) throws
+        -> [String: [(link: TaskLink, kind: LinkKind, otherID: String)]] {
+        var found: [String: [(TaskLink, LinkKind, String)]] = [:]
+
+        try database.forEachRow(
+            """
+            SELECT task_link.* FROM task_link
+            JOIN task ON task.id = task_link.task_id
+            WHERE task.project_id = ?;
+            """,
+            [projectID]
+        ) { row in
+            let link = try TaskLink(row: row)
+            // Both ends, each seeing the link the way round it applies to them.
+            found[link.taskID, default: []].append((link, link.kind, link.otherTaskID))
+            found[link.otherTaskID, default: []].append((link, link.kind.inverse, link.taskID))
+        }
+
+        return found
+    }
+
     @discardableResult
     public func link(_ taskID: String, _ kind: LinkKind, to otherID: String) throws -> TaskLink {
         guard taskID != otherID else {

@@ -125,6 +125,14 @@ enum Parse {
         value == value.rounded() ? String(Int(value)) : String(format: "%g", value)
     }
 
+    /// `--count 1000`, for seeding a board big enough to measure against.
+    static func count(_ text: String) throws -> Int {
+        guard let value = Int(text), value >= 0, value <= 100_000 else {
+            throw CLIError("--count takes a whole number of cards, up to 100000. `\(text)` does not.")
+        }
+        return value
+    }
+
     /// `--due 2026-10-01`.
     static func date(_ text: String) throws -> Date {
         let formatter = dayFormatter

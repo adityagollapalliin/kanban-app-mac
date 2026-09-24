@@ -20,6 +20,8 @@ struct BoardSettingsMenu: View {
             colorSection
             Divider()
             staleSection
+            Divider()
+            densitySection
         } label: {
             Label("Board", systemImage: "slider.horizontal.3")
                 .labelStyle(.titleAndIcon)
@@ -50,7 +52,7 @@ struct BoardSettingsMenu: View {
     /// a fourth row on explains itself instead of appearing to do nothing.
     @ViewBuilder
     private var cardFieldSection: some View {
-        Menu("Card Rows (\(board?.cardFields.count ?? 0) of \(CardField.maximumPerBoard))") {
+        Menu("Card Rows (\(board?.cardRowCount ?? 0) of \(CardField.maximumPerBoard))") {
             ForEach(CardField.allCases, id: \.self) { field in
                 Button {
                     model.toggleCardField(field)
@@ -59,6 +61,23 @@ struct BoardSettingsMenu: View {
                         Label(field.label, systemImage: "checkmark")
                     } else {
                         Text(field.label)
+                    }
+                }
+            }
+
+            // The project's own fields sit in the same list and share the same
+            // cap, because a card showing six things shows none of them.
+            if !model.customFields.isEmpty {
+                Divider()
+                ForEach(model.customFields) { field in
+                    Button {
+                        model.toggleCustomCardField(field.id)
+                    } label: {
+                        if board?.customCardFieldIDs.contains(field.id) == true {
+                            Label(field.name, systemImage: "checkmark")
+                        } else {
+                            Text(field.name)
+                        }
                     }
                 }
             }
@@ -95,6 +114,47 @@ struct BoardSettingsMenu: View {
                         } else {
                             Text(rule.label)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var densitySection: some View {
+        Menu("Density") {
+            ForEach(Density.allCases, id: \.self) { option in
+                Button {
+                    model.density = option
+                } label: {
+                    if model.density == option {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        }
+
+        Menu("Accent") {
+            Button {
+                model.accentName = ""
+            } label: {
+                if model.accentName.isEmpty {
+                    Label("System", systemImage: "checkmark")
+                } else {
+                    Text("System")
+                }
+            }
+            Divider()
+            ForEach(PaletteColor.allCases) { colour in
+                Button {
+                    model.accentName = colour.rawValue
+                } label: {
+                    if model.accentName == colour.rawValue {
+                        Label(colour.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(colour.displayName)
                     }
                 }
             }

@@ -27,6 +27,14 @@ public final class AppEnvironment {
     /// so views can refresh. Sampled on window activation — never polled.
     public private(set) var externalChangeCount = 0
 
+    /// Whether the menu bar item is shown, and whether due dates are reminded
+    /// about. Both live with the file rather than with the Mac, so they travel
+    /// with the boards they are about.
+    public private(set) var showsMenuBarExtra = false
+    public private(set) var remindsAboutDueDates = false
+
+    private let reminders = DueDateReminders()
+
     private var maintenance: DiagnosticsMaintenance?
     private var lastSeenDataVersion: Int64 = 0
     private var wakeObserver: (any NSObjectProtocol)?
@@ -55,8 +63,13 @@ public final class AppEnvironment {
             board = BoardViewModel(database: opened, paths: resolved)
             lastSeenDataVersion = (try? opened.dataVersion) ?? 0
 
+            let settings = AppSettings(database: opened)
+            showsMenuBarExtra = (try? settings.showsMenuBarExtra) ?? false
+            remindsAboutDueDates = (try? settings.remindsAboutDueDates) ?? false
+
             diagnosticsDirectory.record("app.launch version=\(Migration.latestVersion)")
             observeSystemEvents()
+            refreshReminders()
         } catch let error as LocalBoardError {
             startupError = error
             Log.app.error("Startup failed: \(String(describing: error.errorDescription), privacy: .public)")
@@ -103,6 +116,42 @@ public final class AppEnvironment {
                 self?.checkForExternalChanges()
             }
         }
+    }
+
+    // MARK: - Optional extras
+
+    public func setShowsMenuBarExtra(_ on: Bool) {
+        guard let database else { return }
+        showsMenuBarExtra = on
+        try? AppSettings(database: database).setShowsMenuBarExtra(on)
+    }
+
+    public func setRemindsAboutDueDates(_ on: Bool) async {
+        guard let database else { return }
+
+        // Asking permission only at the moment somebody turns reminders on,
+        // rather than at launch: a permission dialog on first run is answered
+        // by reflex, and usually with "no".
+        if on, await reminders.requestPermission() == false {
+            remindsAboutDueDates = false
+            try? AppSettings(database: database).setRemindsAboutDueDates(false)
+            return
+        }
+
+        remindsAboutDueDates = on
+        try? AppSettings(database: database).setRemindsAboutDueDates(on)
+
+        if on { refreshReminders() } else { Task { await reminders.cancelAll() } }
+    }
+
+    /// Rewrites the scheduled reminders from what is on the board now.
+    public func refreshReminders() {
+        guard remindsAboutDueDates, let board else { return }
+
+        let tasks = board.snapshot?.columns.flatMap(\.tasks) ?? []
+        let tags = Dictionary(tasks.map { ($0.id, board.tag(for: $0)) },
+                              uniquingKeysWith: { first, _ in first })
+        Task { await reminders.reschedule(for: tasks, tags: tags) }
     }
 
     public func checkForExternalChanges() {

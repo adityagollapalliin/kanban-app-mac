@@ -9,6 +9,7 @@ struct BoardView: View {
     let externalChangeCount: Int
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(AppEnvironment.self) private var environment
 
     @State private var isNamingView = false
     @State private var newViewName = ""
@@ -31,18 +32,24 @@ struct BoardView: View {
     @State private var screen: BoardScreen = .board
     @State private var isEditingBoardQuery = false
     @State private var boardQuery = ""
+    @State private var isShowingPalette = false
+    @State private var isShowingProjectSettings = false
+    @State private var isNamingTemplate = false
+    @State private var newTemplateName = ""
 
     /// Which of the board's screens is showing. The board, the work waiting to
     /// start, the releases it is going into, and what the history says about
     /// all of it — four views of one project rather than four places.
     enum BoardScreen: String, CaseIterable, Identifiable {
-        case board, backlog, releases, analytics
+        case board, backlog, timeline, sprints, releases, analytics
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .board: "Board"
             case .backlog: "Backlog"
+            case .timeline: "Timeline"
+            case .sprints: "Sprints"
             case .releases: "Releases"
             case .analytics: "Analytics"
             }
@@ -52,6 +59,8 @@ struct BoardView: View {
             switch self {
             case .board: "rectangle.split.3x1"
             case .backlog: "tray.2"
+            case .timeline: "chart.bar.xaxis"
+            case .sprints: "figure.run"
             case .releases: "shippingbox"
             case .analytics: "chart.xyaxis.line"
             }
@@ -74,6 +83,9 @@ struct BoardView: View {
             }
         }
         .task { model.load() }
+        // Due dates change as cards are edited, so the scheduled reminders are
+        // rewritten whenever the board is.
+        .onChange(of: model.snapshot?.taskCount) { environment.refreshReminders() }
         // Another process wrote to the same file. AppEnvironment notices on
         // activation and bumps the counter; this is where the board catches up.
         .onChange(of: externalChangeCount) { model.load() }
@@ -249,6 +261,33 @@ struct BoardView: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $isNamingView) { namingSheet }
         .sheet(isPresented: $isEditingSwimlanes) { SwimlaneEditor(model: model) }
+        .sheet(isPresented: $isShowingProjectSettings) { ProjectSettingsView(model: model) }
+        .sheet(isPresented: $isShowingPalette) {
+            CommandPalette(model: model) { screen = $0 }
+        }
+        .alert("Save as template", isPresented: $isNamingTemplate) {
+            TextField("Name", text: $newTemplateName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                if let taskID = model.selectedTaskID {
+                    model.saveCardTemplate(named: newTemplateName, from: taskID)
+                }
+            }
+        } message: {
+            Text("Keeps this card's type, priority, notes, labels and checklist — not its title.")
+        }
+        // The palette and undo are wired here rather than only in the menu bar,
+        // so they work whichever window has focus.
+        .onKeyPress(.init("k"), phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            isShowingPalette = true
+            return .handled
+        }
+        .alert("Sprint completed", isPresented: carriedOverShown) {
+            Button("OK", role: .cancel) { model.carriedOverCount = nil }
+        } message: {
+            Text(carriedOverMessage)
+        }
         .alert("New column", isPresented: $isAddingColumn) {
             TextField("Name", text: $newColumnName)
             Button("Cancel", role: .cancel) {}
@@ -304,6 +343,10 @@ struct BoardView: View {
             }
         case .backlog:
             BacklogView(model: model, onOpenInWindow: openInWindow) { screen = .board }
+        case .timeline:
+            TimelineView(model: model, onOpenInWindow: openInWindow)
+        case .sprints:
+            SprintsView(model: model)
         case .releases:
             ReleasesView(model: model)
         case .analytics:
@@ -324,12 +367,28 @@ struct BoardView: View {
             .help("Board, backlog, releases, analytics")
         }
 
+        if let timed = model.timedTask {
+            ToolbarItem(placement: .primaryAction) {
+                TimerToolbarItem(task: timed, model: model)
+            }
+        }
+
         ToolbarItem(placement: .primaryAction) {
             BoardSettingsMenu(model: model)
         }
 
         ToolbarItem(placement: .primaryAction) {
             Menu {
+                Button("Command Palette…", systemImage: "magnifyingglass") {
+                    isShowingPalette = true
+                }
+                .keyboardShortcut("k")
+
+                Divider()
+
+                Button("Project Settings…", systemImage: "gearshape") {
+                    isShowingProjectSettings = true
+                }
                 Button("Edit Swimlanes…", systemImage: "arrow.left.and.right.text.vertical") {
                     isEditingSwimlanes = true
                 }
@@ -337,6 +396,30 @@ struct BoardView: View {
                     boardQuery = model.snapshot?.board.filterQuery ?? ""
                     isEditingBoardQuery = true
                 }
+                Divider()
+
+                if !model.cardTemplates.isEmpty {
+                    Menu("New Card From Template") {
+                        ForEach(model.cardTemplates) { template in
+                            Button(template.name) {
+                                if let column = model.visibleColumns.first {
+                                    model.createCard(
+                                        from: template,
+                                        titled: "New \(template.name)",
+                                        inStatus: column.status.id
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Button("Save Card as Template…", systemImage: "doc.on.doc") {
+                    newTemplateName = ""
+                    isNamingTemplate = true
+                }
+                .disabled(model.selectedTaskID == nil)
+                .help("Open a card first")
+
                 Divider()
                 Button("Select All Cards", systemImage: "checklist") { model.pickAll() }
                     .disabled(model.visibleTaskCount == 0)
@@ -419,6 +502,21 @@ struct BoardView: View {
             parts.append("by \(snapshot.board.swimlaneMode.label.lowercased())")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private var carriedOverShown: Binding<Bool> {
+        Binding(
+            get: { model.carriedOverCount != nil },
+            set: { if !$0 { model.carriedOverCount = nil } }
+        )
+    }
+
+    private var carriedOverMessage: String {
+        let count = model.carriedOverCount ?? 0
+        guard count > 0 else { return "Everything in the sprint was finished." }
+        return count == 1
+            ? "One card was unfinished and has been carried over."
+            : "\(count) cards were unfinished and have been carried over."
     }
 
     /// ⌥-click, or the card's menu: the card in a window of its own, so two

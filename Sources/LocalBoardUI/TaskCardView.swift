@@ -28,13 +28,13 @@ struct TaskCardView: View {
         HStack(spacing: 0) {
             stripe
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: model.density.cardSpacing - 2) {
                 headerRow
                 if fields.contains(.labels) { labelChips }
                 titleRow
                 if !footerIsEmpty { footerRow }
             }
-            .padding(10)
+            .padding(model.density.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
@@ -218,6 +218,17 @@ struct TaskCardView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                // The project's own fields, named on the chip because "8"
+                // alone says nothing about which field it came from.
+                ForEach(shownCustomFields, id: \.field.id) { entry in
+                    Text("\(entry.field.name) \(entry.value.display())")
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.quaternary.opacity(0.6), in: Capsule())
+                        .lineLimit(1)
+                }
+
                 Spacer(minLength: 0)
 
                 if fields.contains(.daysInColumn) {
@@ -301,6 +312,20 @@ struct TaskCardView: View {
 
     private var fields: [CardField] { model.snapshot?.board.cardFields ?? [] }
 
+    /// The project's own fields this board shows, skipping the ones this card
+    /// has nothing to say about.
+    private var shownCustomFields: [(field: CustomField, value: CustomFieldValue)] {
+        let chosen = model.snapshot?.board.customCardFieldIDs ?? []
+        guard !chosen.isEmpty else { return [] }
+
+        let values = model.customValues(for: task)
+        return chosen.compactMap { id in
+            guard let field = model.customFields.first(where: { $0.id == id }),
+                  let value = values[id], !value.isEmpty else { return nil }
+            return (field, value)
+        }
+    }
+
     private var staleThreshold: Int { model.snapshot?.board.staleDays ?? 3 }
 
     private var daysInColumn: Int { task.daysInColumn(now: .now) }
@@ -320,6 +345,7 @@ struct TaskCardView: View {
         if task.parentID != nil { return false }
         if model.commentCount(for: task) > 0 { return false }
         if model.attachmentCount(for: task) > 0 { return false }
+        if !shownCustomFields.isEmpty { return false }
         if let subtasks = model.subtaskProgress(for: task), subtasks.total > 0 { return false }
         if fields.contains(.daysInColumn) { return false }
         if fields.contains(.dueDate), task.dueDate != nil { return false }

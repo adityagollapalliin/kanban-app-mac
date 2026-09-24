@@ -19,6 +19,9 @@ struct BoardColumnView: View {
     /// nowhere: a column repeated down the page would otherwise ask "add a
     /// card" four times over, with no answer to which lane it would land in.
     var isLane = false
+    /// The board's coordinate space, so each card can report where it is for
+    /// the lasso.
+    var coordinateSpace: String = ""
     var onOpenInWindow: ((String) -> Void)?
 
     @State private var newTitle = ""
@@ -54,11 +57,31 @@ struct BoardColumnView: View {
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 
+    /// Lazy in a full-height column, which can hold hundreds; eager in a
+    /// lane, which holds a handful.
+    ///
+    /// Laziness inside a lane is worse than useless: nested in the board's
+    /// two-way scroll view, a `LazyVStack` has no reliable idea which part of
+    /// itself is on screen, and decides the answer is none of it — a lane that
+    /// counts its cards in the heading and then draws nothing.
+    @ViewBuilder
     private var cards: some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(column.tasks) { task in
-                card(task)
-            }
+        if isLane {
+            VStack(alignment: .leading, spacing: 8) { cardStack }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 8) { cardStack }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var cardStack: some View {
+        ForEach(column.tasks) { task in
+            card(task)
+        }
 
             // The rest of the column: a drop here means "put it last".
             Color.clear
@@ -71,13 +94,11 @@ struct BoardColumnView: View {
                 } isTargeted: { targeted in
                     dropTarget = targeted ? endOfColumn : (dropTarget == endOfColumn ? nil : dropTarget)
                 }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
     }
 
     private func card(_ task: BoardTask) -> some View {
         TaskCardView(task: task, tag: model.tag(for: task), model: model, onOpenInWindow: onOpenInWindow)
+            .reportingFrame(id: task.id, in: coordinateSpace.isEmpty ? .local : .named(coordinateSpace))
             .draggable(task.id) {
                 // Drag preview: the title alone, so the cursor carries what was
                 // picked up, not a whole card. A multi-card drag says how many.

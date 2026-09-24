@@ -108,6 +108,7 @@ extension Board {
             swimlaneMode: row.int("swimlane_mode")
                 .flatMap { SwimlaneMode(rawValue: Int($0)) } ?? .none,
             cardFields: CardField.list(from: row.string("card_fields") ?? "due,labels"),
+            customCardFieldIDs: CardField.customIDs(from: row.string("card_fields") ?? ""),
             colorRule: row.int("color_rule")
                 .flatMap { CardColorRule(rawValue: Int($0)) } ?? .none,
             colorViewID: row.string("color_view_id"),

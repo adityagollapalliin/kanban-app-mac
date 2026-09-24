@@ -143,9 +143,16 @@ public final class BoardViewModel {
     /// to assign them is a different act from opening one to read it.
     public private(set) var selectedTaskIDs: Set<String> = []
 
-    /// What the last bulk edit replaced. One deep, because a bulk edit is an
-    /// action you either take back straight away or live with.
+    /// What the last bulk edit replaced, for the bulk bar's own Undo button.
     public private(set) var lastBulkEdit: TaskRepository.UndoRecord?
+
+    /// Undo and redo for every card edit, bulk or not.
+    private var history = EditHistory()
+
+    public var canUndo: Bool { history.canUndo }
+    public var canRedo: Bool { history.canRedo }
+    public var undoLabel: String? { history.undoLabel }
+    public var redoLabel: String? { history.redoLabel }
 
     /// Who this copy of the app belongs to, for `is:mine`.
     public private(set) var currentPersonID: String?
@@ -174,6 +181,49 @@ public final class BoardViewModel {
     let analyticsRepository: AnalyticsRepository
     let settings: AppSettings
     let cardDetailRepository: CardDetailRepository
+    let customFieldRepository: CustomFieldRepository
+    let sprintRepository: SprintRepository
+    let workflowRepository: WorkflowRepository
+    let automationRepository: AutomationRepository
+    let templateRepository: TemplateRepository
+
+    /// The project's own fields, and what every card on the board has put in
+    /// them — gathered in one query rather than one per card.
+    public private(set) var customFields: [CustomField] = []
+    public private(set) var customValues: [String: [String: CustomFieldValue]] = [:]
+
+    public private(set) var sprints: [Sprint] = []
+    public private(set) var activeSprint: Sprint?
+    public private(set) var automations: [Automation] = []
+    public private(set) var transitions: [WorkflowTransition] = []
+    public private(set) var cardTemplates: [Template] = []
+    public private(set) var projectTemplates: [Template] = []
+
+    /// The timer, if one is running. Read on every load, because it may have
+    /// been started by another window or left running from last time.
+    public private(set) var runningTimer: RunningTimer?
+
+    /// How many cards the last completed sprint carried over. Shown once and
+    /// then cleared: "the sprint is done" and "four things did not fit" are
+    /// different news, and only the second needs acting on.
+    public var carriedOverCount: Int?
+
+    /// How much room the board gives each card, and the accent it draws in.
+    /// Stored with the file rather than with the Mac, like everything else
+    /// about how a board looks.
+    public var density: Density = .comfortable {
+        didSet {
+            guard density != oldValue else { return }
+            perform { try settings.setDensity(density) }
+        }
+    }
+
+    public var accentName: String = "" {
+        didSet {
+            guard accentName != oldValue else { return }
+            perform { try settings.setAccent(accentName.isEmpty ? nil : accentName) }
+        }
+    }
 
     /// The open card's conversation, files, links and hours. Loaded with the
     /// selection rather than for the whole board, because only one card is
@@ -187,6 +237,10 @@ public final class BoardViewModel {
     /// Badge counts for every card on the board, gathered in two queries.
     public private(set) var commentCounts: [String: Int] = [:]
     public private(set) var attachmentCounts: [String: Int] = [:]
+
+    /// Every link in the project, gathered once per load. The timeline draws
+    /// an arrow per dependency and cannot afford a query per card per redraw.
+    private var linksByTask: [String: [(link: TaskLink, kind: LinkKind, otherID: String)]] = [:]
 
     public init(
         database: Database,
@@ -207,6 +261,11 @@ public final class BoardViewModel {
         self.cardDetailRepository = CardDetailRepository(
             database: database, clock: clock, paths: paths
         )
+        self.customFieldRepository = CustomFieldRepository(database: database, clock: clock)
+        self.sprintRepository = SprintRepository(database: database, clock: clock)
+        self.workflowRepository = WorkflowRepository(database: database, clock: clock)
+        self.automationRepository = AutomationRepository(database: database, clock: clock)
+        self.templateRepository = TemplateRepository(database: database, clock: clock)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -262,7 +321,20 @@ public final class BoardViewModel {
                 let counts = try cardDetailRepository.countsByTask(inProject: projectID)
                 commentCounts = counts.comments
                 attachmentCounts = counts.attachments
+                linksByTask = try cardDetailRepository.linksByTask(inProject: projectID)
+
+                customFields = try customFieldRepository.fields(inProject: projectID)
+                customValues = try customFieldRepository.valuesByTask(inProject: projectID)
+                sprints = try sprintRepository.sprints(inProject: projectID)
+                activeSprint = try sprintRepository.activeSprint(inProject: projectID)
+                automations = try automationRepository.automations(inProject: projectID)
+                transitions = try workflowRepository.transitions(inProject: projectID)
+                cardTemplates = try templateRepository.cardTemplates(inProject: projectID)
             }
+            projectTemplates = try templateRepository.projectTemplates()
+            runningTimer = try cardDetailRepository.runningTimer()
+            density = try settings.density
+            accentName = try settings.accent ?? ""
             colorQueryMatches = try colorMatches()
             quickFilters = try presentationRepository.quickFilters(inBoard: selectedBoardID)
             swimlanes = try presentationRepository.swimlanes(inBoard: selectedBoardID)
@@ -513,10 +585,9 @@ public final class BoardViewModel {
         // Dropping a card onto itself is a no-op, not a move to nowhere.
         guard taskID != before else { return }
 
-        perform {
+        editing([taskID], "Move") {
             let after = try neighbourAbove(before: before, inStatus: statusID, moving: taskID)
             try taskRepository.move(taskID, toStatus: statusID, after: after, before: before)
-            reloadSnapshot()
         }
     }
 
@@ -534,10 +605,9 @@ public final class BoardViewModel {
     }
 
     public func setTrashed(_ trashed: Bool, for taskID: String) {
-        perform {
+        editing([taskID], trashed ? "Move to Trash" : "Put Back") {
             try taskRepository.setTrashed(trashed, for: taskID)
             if trashed, selectedTaskID == taskID { selectedTaskID = nil }
-            reloadSnapshot()
         }
     }
 
@@ -553,38 +623,65 @@ public final class BoardViewModel {
         setTrashed(false, for: taskID)
     }
 
-    public func rename(_ taskID: String, to title: String) {
+    /// Runs a card edit, remembering what the cards were so it can be undone.
+    ///
+    /// Every single-card mutation goes through here, which is the only reason
+    /// Undo covers the whole app rather than the two or three places somebody
+    /// remembered to wire it into.
+    func editing(_ taskIDs: [String], _ label: String, _ work: () throws -> Void) {
+        let before = taskRepository.snapshot(taskIDs, label: label)
         perform {
-            try taskRepository.setTitle(title, for: taskID)
+            try work()
+            history.record(before)
             reloadSnapshot()
+        }
+    }
+
+    public func undo() {
+        guard let record = history.popUndo(currentState: { taskRepository.snapshot($0.tasks.map(\.id), label: $0.label) })
+        else { return }
+        perform {
+            try taskRepository.restore(record)
+            reloadSnapshot()
+        }
+    }
+
+    public func redo() {
+        guard let record = history.popRedo(currentState: { taskRepository.snapshot($0.tasks.map(\.id), label: $0.label) })
+        else { return }
+        perform {
+            try taskRepository.restore(record)
+            reloadSnapshot()
+        }
+    }
+
+    public func rename(_ taskID: String, to title: String) {
+        editing([taskID], "Rename") {
+            try taskRepository.setTitle(title, for: taskID)
         }
     }
 
     public func setDescription(_ markdown: String, for taskID: String) {
-        perform {
+        editing([taskID], "Edit Notes") {
             try taskRepository.setDescription(markdown, for: taskID)
-            reloadSnapshot()
         }
     }
 
     public func setType(_ type: TaskType, for taskID: String) {
-        perform {
+        editing([taskID], "Change Type") {
             try taskRepository.setType(type, for: taskID)
-            reloadSnapshot()
         }
     }
 
     public func setPriority(_ priority: Priority, for taskID: String) {
-        perform {
+        editing([taskID], "Change Priority") {
             try taskRepository.setPriority(priority, for: taskID)
-            reloadSnapshot()
         }
     }
 
     public func setDueDate(_ due: Date?, for taskID: String) {
-        perform {
+        editing([taskID], "Change Due Date") {
             try taskRepository.setDueDate(due, for: taskID)
-            reloadSnapshot()
         }
     }
 
@@ -620,9 +717,8 @@ public final class BoardViewModel {
     }
 
     public func setAssignee(_ personID: String?, for taskID: String) {
-        perform {
+        editing([taskID], "Assign") {
             try taskRepository.setAssignee(personID, for: taskID)
-            reloadSnapshot()
         }
     }
 
@@ -900,25 +996,22 @@ extension BoardViewModel {
     // MARK: Flags
 
     public func setFlag(_ flagged: Bool, reason: String = "", for taskID: String) {
-        perform {
+        editing([taskID], flagged ? "Flag" : "Remove Flag") {
             try tasks.setFlag(flagged, reason: reason, for: taskID)
-            reloadSnapshot()
         }
     }
 
     // MARK: Estimates and releases
 
     public func setEstimate(_ estimate: Double?, for taskID: String) {
-        perform {
+        editing([taskID], "Change Points") {
             try tasks.setEstimate(estimate, for: taskID)
-            reloadSnapshot()
         }
     }
 
     public func setVersion(_ versionID: String?, for taskID: String) {
-        perform {
+        editing([taskID], "Set Release") {
             try tasks.setVersion(versionID, for: taskID)
-            reloadSnapshot()
         }
     }
 
@@ -1049,10 +1142,10 @@ extension BoardViewModel {
 
     // MARK: How the board looks
 
-    public func setCardFields(_ fields: [CardField]) {
+    public func setCardFields(_ fields: [CardField], custom customIDs: [String] = []) {
         guard let boardID = selectedBoardID else { return }
         perform {
-            try presentationRepository.setCardFields(fields, for: boardID)
+            try presentationRepository.setCardFields(fields, custom: customIDs, for: boardID)
             reloadSnapshot()
         }
     }
@@ -1065,16 +1158,37 @@ extension BoardViewModel {
         if let index = fields.firstIndex(of: field) {
             fields.remove(at: index)
         } else {
-            guard fields.count < CardField.maximumPerBoard else {
-                failure = .invalidInput(
-                    field: "card fields",
-                    detail: "A card shows at most \(CardField.maximumPerBoard) extra rows. Turn one off first."
-                )
-                return
-            }
+            guard hasRoomForAnotherCardRow else { return }
             fields.append(field)
         }
-        setCardFields(fields)
+        setCardFields(fields, custom: board.customCardFieldIDs)
+    }
+
+    /// The same, for one of the project's own fields. They share the cap with
+    /// the built-in rows, because a card showing six things shows none of them.
+    public func toggleCustomCardField(_ fieldID: String) {
+        guard let board = snapshot?.board else { return }
+        var ids = board.customCardFieldIDs
+
+        if let index = ids.firstIndex(of: fieldID) {
+            ids.remove(at: index)
+        } else {
+            guard hasRoomForAnotherCardRow else { return }
+            ids.append(fieldID)
+        }
+        setCardFields(board.cardFields, custom: ids)
+    }
+
+    private var hasRoomForAnotherCardRow: Bool {
+        guard let board = snapshot?.board else { return false }
+        guard board.cardRowCount < CardField.maximumPerBoard else {
+            failure = .invalidInput(
+                field: "card rows",
+                detail: "A card shows at most \(CardField.maximumPerBoard) extra rows. Turn one off first."
+            )
+            return false
+        }
+        return true
     }
 
     public func setColorRule(_ rule: CardColorRule, viewID: String? = nil) {
@@ -1168,6 +1282,16 @@ extension BoardViewModel {
         selectedTaskIDs.formUnion(ordered[range])
     }
 
+    /// Picks a set of cards, either replacing the selection or adding to it.
+    /// The lasso uses this on every frame of the drag.
+    public func pick(_ taskIDs: [String], adding: Bool) {
+        if adding {
+            selectedTaskIDs.formUnion(taskIDs)
+        } else {
+            selectedTaskIDs = Set(taskIDs)
+        }
+    }
+
     public func pickAll() {
         selectedTaskIDs = Set(visibleColumns.flatMap(\.tasks).map(\.id))
     }
@@ -1184,7 +1308,9 @@ extension BoardViewModel {
 
     private func bulk(_ work: () throws -> TaskRepository.UndoRecord) {
         perform {
-            lastBulkEdit = try work()
+            let record = try work()
+            lastBulkEdit = record
+            history.record(record)
             reloadSnapshot()
         }
     }
@@ -1389,6 +1515,17 @@ extension BoardViewModel {
         }
     }
 
+    /// Every link on a card, for the timeline's arrows.
+    ///
+    /// Read straight from the store rather than from the inspector's cached
+    /// copy, which only ever holds the one open card.
+    public func links(forTask taskID: String) -> [(link: TaskLink, kind: LinkKind, otherID: String)] {
+        // The open card's own list is the freshly loaded one; everything else
+        // comes from the single pass made when the board was read.
+        if taskID == selectedTaskID { return links }
+        return linksByTask[taskID] ?? []
+    }
+
     public func unlink(_ linkID: String) {
         perform {
             try cardDetailRepository.unlink(linkID)
@@ -1437,5 +1574,290 @@ extension BoardViewModel {
         guard let counts = try? cardDetailRepository.countsByTask(inProject: projectID) else { return }
         commentCounts = counts.comments
         attachmentCounts = counts.attachments
+    }
+}
+
+// MARK: - Milestones 3 to 5
+
+extension BoardViewModel {
+
+    private var projectID: String? { snapshot?.board.projectID }
+
+    // MARK: Custom fields
+
+    public func customValues(for task: BoardTask) -> [String: CustomFieldValue] {
+        customValues[task.id] ?? [:]
+    }
+
+    public func createCustomField(named name: String, kind: CustomFieldKind, options: [String] = []) {
+        guard let projectID else { return }
+        perform {
+            try customFieldRepository.create(
+                inProject: projectID, name: name, kind: kind, options: options
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func renameCustomField(_ fieldID: String, to name: String) {
+        perform {
+            try customFieldRepository.rename(fieldID, to: name)
+            reloadSnapshot()
+        }
+    }
+
+    public func setCustomFieldOptions(_ options: [String], for fieldID: String) {
+        perform {
+            try customFieldRepository.setOptions(options, for: fieldID)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteCustomField(_ fieldID: String) {
+        perform {
+            try customFieldRepository.delete(fieldID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Custom-field values are not card columns, so they sit outside the undo
+    /// stack. Undo never claims to reverse what it cannot.
+    public func setCustomValue(_ value: CustomFieldValue?, forField fieldID: String, on taskID: String) {
+        perform {
+            try customFieldRepository.setValue(value, forField: fieldID, onTask: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Sprints
+
+    public func createSprint(named name: String, goal: String, from start: Date?, to end: Date?) {
+        guard let projectID else { return }
+        perform {
+            try sprintRepository.create(
+                inProject: projectID, name: name, goal: goal, startsAt: start, endsAt: end
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func updateSprint(_ sprintID: String, name: String, goal: String, from start: Date?, to end: Date?) {
+        perform {
+            try sprintRepository.update(sprintID, name: name, goal: goal, startsAt: start, endsAt: end)
+            reloadSnapshot()
+        }
+    }
+
+    public func startSprint(_ sprintID: String) {
+        perform {
+            try sprintRepository.start(sprintID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Completing reports how much was carried, because "the sprint is done"
+    /// and "four things did not fit" are two different pieces of news and the
+    /// second is the one worth acting on.
+    public func completeSprint(_ sprintID: String, carryingOverTo nextID: String?) {
+        perform {
+            let carried = try sprintRepository.complete(sprintID, carryingOverTo: nextID)
+            carriedOverCount = carried
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteSprint(_ sprintID: String) {
+        perform {
+            try sprintRepository.delete(sprintID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setSprint(_ sprintID: String?, for taskID: String) {
+        editing([taskID], "Set Sprint") {
+            try sprintRepository.setSprint(sprintID, for: taskID)
+        }
+    }
+
+    public func sprint(id: String?) -> Sprint? {
+        guard let id else { return nil }
+        return sprints.first { $0.id == id }
+    }
+
+    public func tasks(inSprint sprintID: String) -> [BoardTask] {
+        (try? sprintRepository.tasks(inSprint: sprintID)) ?? []
+    }
+
+    public func burndown(for sprint: Sprint, points: Bool = true) -> [BurndownPoint] {
+        (try? analyticsRepository.burndown(sprint: sprint, points: points)) ?? []
+    }
+
+    public func velocity() -> [SprintVelocity] {
+        guard let projectID else { return [] }
+        return (try? sprintRepository.velocity(inProject: projectID)) ?? []
+    }
+
+    // MARK: Workflow
+
+    public var enforcesWorkflow: Bool {
+        projects.first { $0.id == projectID }?.enforcesWorkflow ?? false
+    }
+
+    public func setWorkflowEnforced(_ enforced: Bool) {
+        guard let projectID else { return }
+        perform {
+            try workflowRepository.setEnforced(enforced, inProject: projectID)
+            load()
+        }
+    }
+
+    public func setTransition(from: String, to: String, allowed: Bool) {
+        guard let projectID else { return }
+        perform {
+            if allowed {
+                try workflowRepository.allow(from: from, to: to, inProject: projectID)
+            } else {
+                try workflowRepository.forbid(from: from, to: to, inProject: projectID)
+            }
+            reloadSnapshot()
+        }
+    }
+
+    public func seedWorkflow() {
+        guard let projectID else { return }
+        perform {
+            try workflowRepository.seedSequentialTransitions(inProject: projectID)
+            reloadSnapshot()
+        }
+    }
+
+    public func permitsTransition(from: String, to: String) -> Bool {
+        guard let projectID else { return true }
+        return (try? workflowRepository.permits(from: from, to: to, inProject: projectID)) ?? true
+    }
+
+    // MARK: Automations
+
+    public func createAutomation(
+        named name: String,
+        trigger: AutomationTrigger,
+        triggerStatusID: String?,
+        action: AutomationAction,
+        actionValue: String
+    ) {
+        guard let projectID else { return }
+        perform {
+            try automationRepository.create(
+                inProject: projectID, name: name, trigger: trigger,
+                triggerStatusID: triggerStatusID, action: action, actionValue: actionValue
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func setAutomationEnabled(_ enabled: Bool, for automationID: String) {
+        perform {
+            try automationRepository.setEnabled(enabled, for: automationID)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteAutomation(_ automationID: String) {
+        perform {
+            try automationRepository.delete(automationID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: Templates
+
+    public func saveCardTemplate(named name: String, from taskID: String) {
+        guard let projectID, let task = task(id: taskID) else { return }
+        perform {
+            let payload = try templateRepository.cardTemplate(from: task)
+            try templateRepository.saveCardTemplate(inProject: projectID, name: name, payload: payload)
+            reloadSnapshot()
+        }
+    }
+
+    public func createCard(from template: Template, titled title: String, inStatus statusID: String) {
+        guard let projectID else { return }
+        perform {
+            try templateRepository.createCard(
+                from: template, titled: title, inProject: projectID, statusID: statusID
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func saveProjectTemplate(named name: String) {
+        guard let projectID else { return }
+        perform {
+            let payload = try templateRepository.projectTemplate(from: projectID)
+            try templateRepository.saveProjectTemplate(name: name, payload: payload)
+            projectTemplates = try templateRepository.projectTemplates()
+        }
+    }
+
+    public func createProject(from template: Template, named name: String, key: String) {
+        guard let workspaceID = workspaces.first?.id else { return }
+        perform {
+            let project = try templateRepository.createProject(
+                from: template, named: name, key: key, inWorkspace: workspaceID
+            )
+            load()
+            selectedBoardID = try boardRepository.boards(inProject: project.id).first?.id
+        }
+    }
+
+    public func deleteTemplate(_ templateID: String) {
+        perform {
+            try templateRepository.delete(templateID)
+            reloadSnapshot()
+            projectTemplates = try templateRepository.projectTemplates()
+        }
+    }
+
+    // MARK: The timer
+
+    public func isTiming(_ taskID: String) -> Bool { runningTimer?.taskID == taskID }
+
+    public func startTimer(on taskID: String) {
+        perform {
+            try cardDetailRepository.startTimer(onTask: taskID, personID: currentPersonID)
+            runningTimer = try cardDetailRepository.runningTimer()
+            loadSelectionDetails()
+        }
+    }
+
+    public func stopTimer(discarding: Bool = false) {
+        perform {
+            try cardDetailRepository.stopTimer(discarding: discarding)
+            runningTimer = nil
+            loadSelectionDetails()
+            reloadSnapshot()
+        }
+    }
+
+    /// The card the timer is running on, for the toolbar.
+    public var timedTask: BoardTask? {
+        guard let runningTimer else { return nil }
+        return task(id: runningTimer.taskID)
+    }
+
+    // MARK: Due dates, for reminders and the menu bar
+
+    /// Everything unfinished that is due on or before the end of today.
+    ///
+    /// The same question the menu bar asks and the reminders are built from,
+    /// so the two can never disagree about what "due today" means.
+    public func dueToday(now: Date = .now, calendar: Calendar = .current) -> [BoardTask] {
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        return (snapshot?.columns.flatMap(\.tasks) ?? [])
+            .filter { task in
+                guard task.completedAt == nil, let due = task.dueDate else { return false }
+                return due < endOfDay
+            }
+            .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
     }
 }

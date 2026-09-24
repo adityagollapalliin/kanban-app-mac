@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LocalBoardCore
 
@@ -21,6 +22,22 @@ public struct LocalBoardScene: App {
         .defaultSize(width: 1_180, height: 760)
         .commands {
             CommandGroup(replacing: .newItem) {}
+
+            // Undo and redo belong in the Edit menu with their standard
+            // shortcuts, not only on a button somebody has to find.
+            CommandGroup(replacing: .undoRedo) {
+                Button(environment.board?.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                    environment.board?.undo()
+                }
+                .keyboardShortcut("z")
+                .disabled(environment.board?.canUndo != true)
+
+                Button(environment.board?.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                    environment.board?.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(environment.board?.canRedo != true)
+            }
         }
 
         // ⌥-click a card, or use its menu. A card opened this way is the same
@@ -30,6 +47,19 @@ public struct LocalBoardScene: App {
                 .environment(environment)
         }
         .defaultSize(width: 380, height: 560)
+
+        // Optional, and off unless asked for: a menu bar item nobody wanted is
+        // clutter in the one strip of screen everything else competes for.
+        MenuBarExtra(isInserted: Binding(
+            get: { environment.showsMenuBarExtra },
+            set: { environment.setShowsMenuBarExtra($0) }
+        )) {
+            MenuBarBoard()
+                .environment(environment)
+        } label: {
+            MenuBarLabel()
+                .environment(environment)
+        }
 
         Settings {
             SettingsView()

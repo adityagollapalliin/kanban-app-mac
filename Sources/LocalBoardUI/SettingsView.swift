@@ -14,10 +14,12 @@ public struct SettingsView: View {
                 .tabItem { Label("People", systemImage: "person.2") }
             RepositorySettingsView()
                 .tabItem { Label("Repository", systemImage: "arrow.triangle.branch") }
+            ExtrasSettingsView()
+                .tabItem { Label("Extras", systemImage: "bell.badge") }
             PrivacySettingsView()
                 .tabItem { Label("Privacy", systemImage: "lock.shield") }
         }
-        .frame(width: 520, height: 380)
+        .frame(width: 540, height: 420)
     }
 }
 
@@ -309,6 +311,51 @@ struct RepositorySettingsView: View {
 
                     Read only. Nothing is written into the folder, nothing is fetched, and \
                     no remote is contacted — the app makes no network connections at all.
+                    """)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 8)
+    }
+}
+
+/// The optional extras: the menu bar item and due-date reminders.
+///
+/// Both off until asked for, and both saying plainly what they do — a menu bar
+/// item and a notification are the two things an app can do that intrude on
+/// the rest of the Mac.
+struct ExtrasSettingsView: View {
+
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
+        Form {
+            Section("Menu bar") {
+                Toggle("Show today's cards in the menu bar", isOn: Binding(
+                    get: { environment.showsMenuBarExtra },
+                    set: { environment.setShowsMenuBarExtra($0) }
+                ))
+                Text("A read-only list of what is due today, and the timer if one is running.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Reminders") {
+                Toggle("Remind me about due dates", isOn: Binding(
+                    get: { environment.remindsAboutDueDates },
+                    set: { on in Task { await environment.setRemindsAboutDueDates(on) } }
+                ))
+
+                Text("""
+                    One notification at nine in the morning on the day a card is due. \
+                    Cards already overdue are left alone — a reminder about a date that has \
+                    passed tells you something you can already see, at a moment you did not choose.
+
+                    Local only. macOS schedules these on this Mac; nothing is registered with \
+                    Apple's push service, and the app has no network access to reach one.
                     """)
                     .font(.caption)
                     .foregroundStyle(.secondary)

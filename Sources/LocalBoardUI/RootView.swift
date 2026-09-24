@@ -20,6 +20,15 @@ public struct RootView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        // An empty accent means the one the user chose in System Settings,
+        // which is the right default: the app should look like the rest of
+        // their Mac unless they ask otherwise.
+        .tint(accent)
+    }
+
+    private var accent: Color? {
+        guard let name = environment.board?.accentName, !name.isEmpty else { return nil }
+        return PaletteColor.named(name).color
     }
 
     /// The gap between the window appearing and the file being open. Usually

@@ -53,7 +53,7 @@ func printUsage() {
           localboard                     Open the app
           localboard add <title>         Add a card
           localboard list                List the cards
-          localboard seed                Add sample cards
+          localboard seed                Add sample cards (--count N for a big board)
           localboard export              Write the project as JSON on stdout
           localboard trash <ID>          Move a card to the trash
           localboard restore <ID>        Take it back out again
@@ -83,6 +83,7 @@ func printUsage() {
           --move-to "<column>"           Where cards go when removing a column
           --off                          Take a label off, or clear a flag
           --all                          Include trashed cards in list and export
+          --count <n>                    How many extra cards `seed` should add
 
         QUERY LANGUAGE
           localboard list --query "due < +7d priority >= high"
