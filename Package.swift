@@ -37,5 +37,6 @@ let package = Package(
 
         .testTarget(name: "LocalBoardCoreTests", dependencies: ["LocalBoardCore"]),
         .testTarget(name: "LocalBoardStoreTests", dependencies: ["LocalBoardStore", "LocalBoardCore"]),
+        .testTarget(name: "LocalBoardUITests", dependencies: ["LocalBoardUI", "LocalBoardStore", "LocalBoardCore"]),
     ]
 )
