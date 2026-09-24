@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The sandbox is the enforcement behind the product promise: everything stays
+  on this Mac. Note what is absent and must stay absent —
+  com.apple.security.network.client and .network.server. Without them the
+  kernel refuses outbound connections whatever the code asks for.
+
+  ContainerPaths.detectHost() keys off APP_SANDBOX_CONTAINER_ID, which the
+  sandbox sets here and nowhere else; turning app-sandbox off would silently
+  send the app to ~/Library/Application Support while the CLI kept reading the
+  container, and the two would stop seeing the same database.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Attachments the user picks, and exports the user names. Scoped to
+         files chosen through a system open/save panel; grants nothing else. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>
