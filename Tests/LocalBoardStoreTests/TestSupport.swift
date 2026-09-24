@@ -76,3 +76,51 @@ extension Database {
         return id
     }
 }
+
+extension Database {
+    /// A project with the three statuses a board actually has, so tests can
+    /// move a task across categories and watch `completed_at` follow.
+    @discardableResult
+    func seedBoardProject() throws -> (
+        workspace: String, project: String, board: String,
+        toDo: String, inProgress: String, done: String
+    ) {
+        let now = Date().timeIntervalSince1970
+        let workspaceID = UUID().uuidString
+        let projectID = UUID().uuidString
+        let boardID = UUID().uuidString
+
+        try execute(
+            "INSERT INTO workspace (id, name, sort_order, created_at) VALUES (?, ?, ?, ?);",
+            [workspaceID, "Personal", 1_000.0, now]
+        )
+        try execute(
+            """
+            INSERT INTO project (id, workspace_id, name, key, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            [projectID, workspaceID, "Work", "WORK", 1_000.0, now]
+        )
+        try execute(
+            "INSERT INTO board (id, project_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?);",
+            [boardID, projectID, "Board", 1_000.0, now]
+        )
+
+        var ids: [String] = []
+        for (index, starter) in [("To Do", 0), ("In Progress", 1), ("Done", 2)].enumerated() {
+            let statusID = UUID().uuidString
+            let position = Double(index + 1) * 1_000
+            try execute(
+                "INSERT INTO status (id, project_id, name, category, sort_order) VALUES (?, ?, ?, ?, ?);",
+                [statusID, projectID, starter.0, starter.1, position]
+            )
+            try execute(
+                "INSERT INTO board_column (id, board_id, status_id, name, sort_order) VALUES (?, ?, ?, ?, ?);",
+                [UUID().uuidString, boardID, statusID, starter.0, position]
+            )
+            ids.append(statusID)
+        }
+
+        return (workspaceID, projectID, boardID, ids[0], ids[1], ids[2])
+    }
+}
