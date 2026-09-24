@@ -217,40 +217,56 @@ func exportCommand(_ arguments: Arguments, database: Database) -> Int32 {
     runCatching {
         let selection = Selection(database: database)
         let project = try selection.project(key: arguments.option("project"))
-        let statuses = try selection.statuses(in: project)
-        let repository = TaskRepository(database: database)
 
-        let tasks = try statuses.flatMap {
-            try repository.tasks(inProject: project.id, statusID: $0.id, includeTrashed: arguments.flag("all"))
-        }
-
-        let document = ExportDocument(
-            schemaVersion: Migration.latestVersion,
-            exportedAt: Date(),
-            project: project,
-            statuses: statuses,
-            tasks: tasks
+        let archive = try ProjectArchive.export(
+            projectID: project.id,
+            from: database,
+            includeTrashed: arguments.flag("all")
         )
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-
-        let data = try encoder.encode(document)
-        Output.line(String(decoding: data, as: UTF8.self))
+        Output.line(String(decoding: try archive.encoded(), as: UTF8.self))
         return ExitStatus.success
     }
 }
 
-/// The shape `localboard export` writes. Declared here rather than in the
-/// store: it is a file format, and file formats are promises to whoever reads
-/// them next.
-struct ExportDocument: Codable {
-    let schemaVersion: Int
-    let exportedAt: Date
-    let project: Project
-    let statuses: [Status]
-    let tasks: [BoardTask]
+// MARK: - import
+
+/// `localboard import <file>` — the other half of the round trip.
+///
+/// Always creates a new project rather than merging into an existing one, so
+/// the worst an import can do is leave a project to delete. See
+/// `ProjectArchive.restore` for why merging is not offered.
+func importCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        guard let path = arguments.remainder.first else {
+            Output.error("usage: localboard import <file.json> [--name \"Name\"] [--key KEY]")
+            return ExitStatus.usage
+        }
+
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard let data = FileManager.default.contents(atPath: url.path) else {
+            throw LocalBoardError.invalidInput(field: "file", detail: "No file at \(url.path).")
+        }
+
+        let archive = try ProjectArchive.decoded(from: data)
+        let restored = try archive.restore(
+            into: database,
+            name: arguments.option("name"),
+            key: arguments.option("key")
+        )
+
+        Output.line("""
+            Imported \(restored.project.name) (\(restored.project.key)) \
+            with \(restored.taskCount) card\(restored.taskCount == 1 ? "" : "s").
+            """)
+        if restored.reusedPeople > 0 {
+            let count = restored.reusedPeople
+            Output.line("\(count) assignee\(count == 1 ? "" : "s") matched people already here, by name.")
+        }
+        if restored.project.key != archive.project.key {
+            Output.line("The key \(archive.project.key) was taken, so this project is \(restored.project.key).")
+        }
+        return ExitStatus.success
+    }
 }
 
 // MARK: - people

@@ -8,7 +8,38 @@ version` prints both.
 
 ## Unreleased — schema 5
 
+### Milestone 2: the two views that were missing
+- **List view**: the same filtered cards as a sortable table — key, title,
+  status, priority, assignee, due, points and days in column — groupable by
+  status, assignee, priority, type, epic or sprint. Selecting one row opens
+  it; selecting several is a bulk edit through the same bar the board uses.
+- **Calendar view**: a month of the same cards, against due dates or start
+  dates. Cards are dragged between days to change the date, and the ones with
+  no date sit in a strip along the bottom where they can be dragged onto one.
+- **Import**: `localboard import <file>` reads back what `localboard export`
+  writes, as a new project. Always a new project, never a merge — see
+  `ProjectArchive.restore` for why. Assignees are matched to people already in
+  the file by name; card numbers survive, so WORK-14 is still 14.
+  The export format gained people, labels, label attachments and checklists,
+  all optional on the way in, so a file written by an older build still reads.
+
+### Fixed
+- **A thousand-card board used half a gigabyte.** The board scrolled in both
+  directions and each column scrolled again inside it, so the columns'
+  `LazyVStack`s were handed unbounded height and built every card. A board
+  without swimlanes now scrolls sideways only, and a lane — which cannot
+  scroll on its own — draws twelve cards and offers the rest on a click.
+  499 MB → 86 MB, and 503 MB → 107 MB with swimlanes. See PERFORMANCE.md,
+  which carried the wrong number until now.
+
 ### Milestone 5: Polish
+- **Light, dark or system**, in Settings → Appearance, alongside the accent
+  and density that were already there. System is the default and follows the
+  Mac, including when it switches at sunset.
+- **Keyboard navigation** on the board: arrow keys move between cards, ⌘ with
+  an arrow moves the card itself, Return opens, Space selects, Escape gives
+  back the selection and then the focus, Delete trashes. ⌘N opens the
+  add-a-card field in the column the keyboard is already in.
 - **Command palette** (⌘K) over every card and every action, ranked so that
   what you typed comes first: an exact match beats a prefix, which beats a
   word beginning, which beats a match buried in the middle.

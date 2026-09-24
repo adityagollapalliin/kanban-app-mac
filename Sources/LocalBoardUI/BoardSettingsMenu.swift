@@ -122,6 +122,20 @@ struct BoardSettingsMenu: View {
 
     @ViewBuilder
     private var densitySection: some View {
+        Menu("Appearance") {
+            ForEach(Appearance.allCases, id: \.self) { option in
+                Button {
+                    model.appearance = option
+                } label: {
+                    if model.appearance == option {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Label(option.label, systemImage: option.symbol)
+                    }
+                }
+            }
+        }
+
         Menu("Density") {
             ForEach(Density.allCases, id: \.self) { option in
                 Button {

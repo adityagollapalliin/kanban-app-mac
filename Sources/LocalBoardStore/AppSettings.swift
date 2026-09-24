@@ -18,6 +18,7 @@ public struct AppSettings {
         case accent
         case dueReminders = "due_reminders"
         case menuBar = "menu_bar"
+        case appearance
     }
 
     let database: Database
@@ -74,6 +75,27 @@ extension AppSettings {
 
     public func setDensity(_ density: Density) throws {
         try setValue(String(density.rawValue), for: .density)
+    }
+
+    /// Light, dark, or whatever the Mac is doing.
+    ///
+    /// Stored with the file for the same reason density is: how a board looks
+    /// is part of the board. An unreadable value reads as `system`, because
+    /// the safe answer to "I do not understand this setting" is to do what the
+    /// rest of the Mac does.
+    public var appearance: Appearance {
+        get throws {
+            guard let raw = try value(for: .appearance), let number = Int(raw),
+                  let appearance = Appearance(rawValue: number) else { return .system }
+            return appearance
+        }
+    }
+
+    public func setAppearance(_ appearance: Appearance) throws {
+        // `system` is the default, so it is stored as the absence of a value:
+        // a file that has never been asked about appearance and one that has
+        // been put back to system should read the same.
+        try setValue(appearance == .system ? nil : String(appearance.rawValue), for: .appearance)
     }
 
     /// The palette colour the app draws its accents in, or nil for the one the

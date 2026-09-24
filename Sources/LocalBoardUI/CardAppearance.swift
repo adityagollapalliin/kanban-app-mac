@@ -104,3 +104,68 @@ struct DaysInColumnDots: View {
               : "Here \(days) day\(days == 1 ? "" : "s")")
     }
 }
+
+// MARK: - What a type and a priority look like
+
+/// The card, the list and the calendar all draw a type icon and a priority
+/// arrow, and they have to be the same icon and the same arrow. One answer,
+/// here, rather than three that agree until somebody edits one of them.
+extension CardAppearance {
+
+    static func symbol(forType type: TaskType) -> String {
+        switch type {
+        case .epic: "flag.fill"
+        case .story: "book.closed.fill"
+        case .task: "checkmark.square"
+        case .bug: "ladybug.fill"
+        }
+    }
+
+    static func label(forType type: TaskType) -> String {
+        switch type {
+        case .epic: "Epic"
+        case .story: "Story"
+        case .task: "Task"
+        case .bug: "Bug"
+        }
+    }
+
+    static func color(forType type: TaskType) -> Color {
+        switch type {
+        case .epic: .purple
+        case .story: .green
+        case .task: .secondary
+        case .bug: .red
+        }
+    }
+
+    /// Priority reads as a direction, so the arrow carries it and the colour
+    /// only reinforces it — the board stays legible without colour.
+    static func symbol(forPriority priority: Priority) -> String {
+        switch priority {
+        case .lowest: "chevron.down.2"
+        case .low: "chevron.down"
+        case .normal: "minus"
+        case .high: "chevron.up"
+        case .highest: "chevron.up.2"
+        }
+    }
+
+    static func label(forPriority priority: Priority) -> String {
+        switch priority {
+        case .lowest: "Lowest"
+        case .low: "Low"
+        case .normal: "Normal"
+        case .high: "High"
+        case .highest: "Highest"
+        }
+    }
+
+    static func color(forPriority priority: Priority) -> Color {
+        switch priority {
+        case .lowest, .low, .normal: .secondary
+        case .high: .orange
+        case .highest: .red
+        }
+    }
+}

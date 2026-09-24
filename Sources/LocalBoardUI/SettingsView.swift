@@ -4,10 +4,15 @@ import LocalBoardCore
 import LocalBoardStore
 
 public struct SettingsView: View {
+
+    @Environment(AppEnvironment.self) private var environment
+
     public init() {}
 
     public var body: some View {
         TabView {
+            AppearanceSettingsView()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
             DiagnosticsSettingsView()
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
             PeopleSettingsView()
@@ -20,6 +25,75 @@ public struct SettingsView: View {
                 .tabItem { Label("Privacy", systemImage: "lock.shield") }
         }
         .frame(width: 540, height: 420)
+        .preferredColorScheme(environment.board?.appearance.colorScheme)
+    }
+}
+
+/// How the app looks: light or dark, the accent it draws in, and how much room
+/// it gives a card.
+///
+/// All three are stored with the file rather than with the Mac, which is worth
+/// knowing before changing one: a board that looked different depending on
+/// which Mac opened it would be two boards.
+struct AppearanceSettingsView: View {
+
+    @Environment(AppEnvironment.self) private var environment
+
+    private var model: BoardViewModel? { environment.board }
+
+    var body: some View {
+        Form {
+            Section("Theme") {
+                Picker("Appearance", selection: Binding(
+                    get: { model?.appearance ?? .system },
+                    set: { model?.appearance = $0 }
+                )) {
+                    ForEach(Appearance.allCases, id: \.self) { option in
+                        Label(option.label, systemImage: option.symbol).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Light, dark, or the system appearance")
+
+                Text("""
+                    System follows the Mac, including when it switches at sunset. \
+                    Light and dark are a deliberate override: the app then stays put \
+                    while the rest of the Mac changes.
+                    """)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Accent") {
+                Picker("Accent colour", selection: Binding(
+                    get: { model?.accentName ?? "" },
+                    set: { model?.accentName = $0 }
+                )) {
+                    Text("System").tag("")
+                    ForEach(PaletteColor.allCases) { colour in
+                        Text(colour.displayName).tag(colour.rawValue)
+                    }
+                }
+                .accessibilityLabel("The colour the app draws its accents in")
+            }
+
+            Section("Density") {
+                Picker("Card density", selection: Binding(
+                    get: { model?.density ?? .comfortable },
+                    set: { model?.density = $0 }
+                )) {
+                    ForEach(Density.allCases, id: \.self) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("How much room the board gives each card")
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 8)
+        .disabled(model == nil)
     }
 }
 

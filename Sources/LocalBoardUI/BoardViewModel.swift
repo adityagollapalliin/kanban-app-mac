@@ -225,6 +225,25 @@ public final class BoardViewModel {
         }
     }
 
+    /// Light, dark, or whatever the Mac is doing.
+    public var appearance: Appearance = .system {
+        didSet {
+            guard appearance != oldValue else { return }
+            perform { try settings.setAppearance(appearance) }
+        }
+    }
+
+    /// The card the keyboard is on, which is not the same as the card that is
+    /// open or the cards that are picked. Focus is where the next arrow key
+    /// starts from; it moves without changing anything.
+    public var focusedTaskID: String?
+
+    /// Bumped by ⌘N. A column watches it rather than a flag, so pressing it
+    /// twice opens the field twice rather than the second press doing nothing.
+    public internal(set) var quickAddToken = 0
+    /// The column ⌘N should open in: the one the keyboard is in, or the first.
+    public internal(set) var quickAddStatusID: String?
+
     /// The open card's conversation, files, links and hours. Loaded with the
     /// selection rather than for the whole board, because only one card is
     /// ever open and four more queries per card would be four hundred on a
@@ -335,6 +354,7 @@ public final class BoardViewModel {
             runningTimer = try cardDetailRepository.runningTimer()
             density = try settings.density
             accentName = try settings.accent ?? ""
+            appearance = try settings.appearance
             colorQueryMatches = try colorMatches()
             quickFilters = try presentationRepository.quickFilters(inBoard: selectedBoardID)
             swimlanes = try presentationRepository.swimlanes(inBoard: selectedBoardID)
@@ -682,6 +702,12 @@ public final class BoardViewModel {
     public func setDueDate(_ due: Date?, for taskID: String) {
         editing([taskID], "Change Due Date") {
             try taskRepository.setDueDate(due, for: taskID)
+        }
+    }
+
+    public func setStartDate(_ start: Date?, for taskID: String) {
+        editing([taskID], "Change Start Date") {
+            try taskRepository.setStartDate(start, for: taskID)
         }
     }
 

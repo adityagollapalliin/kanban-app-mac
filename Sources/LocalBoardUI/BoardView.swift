@@ -37,16 +37,19 @@ struct BoardView: View {
     @State private var isNamingTemplate = false
     @State private var newTemplateName = ""
 
-    /// Which of the board's screens is showing. The board, the work waiting to
+    /// Which of the board's screens is showing. The same cards as columns, as
+    /// a table, against a month and against a timeline; the work waiting to
     /// start, the releases it is going into, and what the history says about
-    /// all of it — four views of one project rather than four places.
+    /// all of it — views of one project rather than a set of places.
     enum BoardScreen: String, CaseIterable, Identifiable {
-        case board, backlog, timeline, sprints, releases, analytics
+        case board, list, calendar, backlog, timeline, sprints, releases, analytics
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .board: "Board"
+            case .list: "List"
+            case .calendar: "Calendar"
             case .backlog: "Backlog"
             case .timeline: "Timeline"
             case .sprints: "Sprints"
@@ -55,9 +58,17 @@ struct BoardView: View {
             }
         }
 
+        /// Whether the quick filters belong above this screen. They do wherever
+        /// the screen is showing the board's own cards.
+        var showsFilters: Bool {
+            self == .board || self == .list || self == .calendar
+        }
+
         var symbol: String {
             switch self {
             case .board: "rectangle.split.3x1"
+            case .list: "list.bullet.rectangle"
+            case .calendar: "calendar"
             case .backlog: "tray.2"
             case .timeline: "chart.bar.xaxis"
             case .sprints: "figure.run"
@@ -235,7 +246,9 @@ struct BoardView: View {
             }
 
             if model.snapshot != nil {
-                if screen == .board { QuickFilterBar(model: model) }
+                // The board, the list and the calendar are the same cards, so
+                // the filters that apply to one apply to all three.
+                if screen.showsFilters { QuickFilterBar(model: model) }
                 currentScreen
             } else {
                 ContentUnavailableView(
@@ -341,6 +354,10 @@ struct BoardView: View {
                 newColumnName = ""
                 isAddingColumn = true
             }
+        case .list:
+            ListView(model: model, onOpenInWindow: openInWindow)
+        case .calendar:
+            CalendarView(model: model, onOpenInWindow: openInWindow)
         case .backlog:
             BacklogView(model: model, onOpenInWindow: openInWindow) { screen = .board }
         case .timeline:
@@ -364,7 +381,7 @@ struct BoardView: View {
             }
             .pickerStyle(.segmented)
             .labelStyle(.iconOnly)
-            .help("Board, backlog, releases, analytics")
+            .help("Board, list, calendar, backlog, timeline, sprints, releases, analytics")
         }
 
         if let timed = model.timedTask {

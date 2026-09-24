@@ -55,6 +55,7 @@ func printUsage() {
           localboard list                List the cards
           localboard seed                Add sample cards (--count N for a big board)
           localboard export              Write the project as JSON on stdout
+          localboard import <file>       Read one back as a new project
           localboard trash <ID>          Move a card to the trash
           localboard restore <ID>        Take it back out again
           localboard labels              List, add or remove labels; put one on a card
@@ -188,6 +189,8 @@ case "seed":
     status = withDatabase { seedCommand(arguments, database: $0) }
 case "export":
     status = withDatabase { exportCommand(arguments, database: $0) }
+case "import":
+    status = withDatabase { importCommand(arguments, database: $0) }
 case "people":
     status = withDatabase { peopleCommand(arguments, database: $0) }
 case "views":

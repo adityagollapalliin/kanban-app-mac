@@ -15,13 +15,21 @@ struct BoardCanvas: View {
 
     @State private var lasso: Lasso?
     @State private var frames: [String: CGRect] = [:]
+    @FocusState private var hasKeyboard: Bool
 
     /// Named so that card frames and the drag are measured against the same
     /// origin, and stay in step as the board scrolls.
     private static let space = "board"
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
+        // A plain board scrolls sideways only, and each column scrolls itself.
+        // This is not a style choice: a column's `LazyVStack` inside a view
+        // that also scrolls vertically is handed unbounded height, decides all
+        // of itself is visible, and builds every card — a thousand-card board
+        // then costs half a gigabyte. Bounding the height is what makes the
+        // laziness real. A laned board still needs the vertical axis, because
+        // the lanes themselves stack down the page.
+        ScrollView(model.isLaned ? [.horizontal, .vertical] : [.horizontal]) {
             Group {
                 if model.isLaned {
                     lanedBoard
@@ -37,6 +45,66 @@ struct BoardCanvas: View {
             .coordinateSpace(name: Self.space)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // The board itself takes the keyboard, so arrow keys move between
+        // cards rather than scrolling the view out from under them. A text
+        // field being edited holds focus instead, which is why the add-a-card
+        // field still works while this is here.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($hasKeyboard)
+        .onAppear { hasKeyboard = true }
+        .onKeyPress(phases: .down, action: handleKey)
+        .accessibilityLabel("Board")
+        .accessibilityHint("Arrow keys move between cards. Return opens one, space selects it.")
+    }
+
+    /// One handler rather than a dozen `onKeyPress(.upArrow)` modifiers: the
+    /// modifier decides whether a key moves the focus or moves the card, and
+    /// splitting that across two places is how the two drift apart.
+    ///
+    /// Anything not claimed here is returned as `.ignored`, so the scroll view
+    /// and the text fields still get the keys they expect.
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        let command = press.modifiers.contains(.command)
+
+        switch press.key {
+        case .upArrow:
+            if command { model.reorderFocusedCard(offset: -1); return .handled }
+            return model.moveFocus(.up) ? .handled : .ignored
+        case .downArrow:
+            if command { model.reorderFocusedCard(offset: 1); return .handled }
+            return model.moveFocus(.down) ? .handled : .ignored
+        case .leftArrow:
+            if command { model.moveFocusedCard(step: -1); return .handled }
+            return model.moveFocus(.left) ? .handled : .ignored
+        case .rightArrow:
+            if command { model.moveFocusedCard(step: 1); return .handled }
+            return model.moveFocus(.right) ? .handled : .ignored
+        case .return:
+            guard model.focusedTaskID != nil else { return .ignored }
+            model.openFocused()
+            return .handled
+        case .space:
+            guard model.focusedTaskID != nil else { return .ignored }
+            model.togglePickFocused()
+            return .handled
+        case .escape:
+            // Escape gives everything back: the picks, then the focus.
+            if model.hasSelection { model.clearPicks(); return .handled }
+            if model.focusedTaskID != nil { model.focus(nil); return .handled }
+            return .ignored
+        case .delete, .deleteForward:
+            guard let focused = model.focusedTaskID else { return .ignored }
+            // Focus moves on before the card goes, so the next press has
+            // somewhere to be rather than falling back to the first card.
+            let next = model.grid.neighbour(of: focused, going: .down)
+                ?? model.grid.neighbour(of: focused, going: .up)
+            model.setTrashed(true, for: focused)
+            model.focus(next)
+            return .handled
+        default:
+            return .ignored
+        }
     }
 
     /// The empty board, which is both where a lasso starts and what you click

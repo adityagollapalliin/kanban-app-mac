@@ -1,4 +1,5 @@
 import SwiftUI
+import LocalBoardCore
 
 /// The colours labels and people can be given.
 ///
@@ -33,5 +34,17 @@ enum PaletteColor: String, CaseIterable, Identifiable {
     /// by a newer build, or by hand in the CLI, still draws as something.
     static func named(_ name: String) -> PaletteColor {
         PaletteColor(rawValue: name.lowercased()) ?? .slate
+    }
+}
+
+extension Appearance {
+    /// `nil` is not "no opinion" by accident — it is the opinion `system`
+    /// holds: whatever the Mac is doing, including when that changes.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }

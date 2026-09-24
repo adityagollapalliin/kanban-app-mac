@@ -4,19 +4,47 @@ The budget from the brief, what was measured, and how to measure it again.
 
 ## The budget, and where it stands
 
-Measured on an Apple silicon Mac against a board of **1,007 cards**, seeded
+Measured on an Apple silicon Mac against a board of **1,013 cards**, seeded
 with `localboard seed --count 1000`.
 
-| Budget | Target | Measured |
+| Budget | Target | Measured at 1,013 cards |
 |---|---|---|
-| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **59.5 MB** small board, **84.2 MB** at 1,007 cards |
+| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **86 MB** board, **107 MB** with swimlanes, **93 MB** list, **77 MB** calendar (**67 MB** on a seven-card board) |
 | Idle CPU | ~0%, no polling | **0.0%** |
-| Launch | under 1 second to usable UI | **~83 ms** to process, UI immediately after |
+| Launch | under 1 second to usable UI | **~150 ms** to process, UI immediately after |
+
+### A correction to the earlier figures
+
+An earlier version of this file reported **84.2 MB** at 1,007 cards and said
+full-height columns were lazy. Re-measured with the board actually on screen,
+the same build used **499 MB** — over the ceiling by more than three times.
+
+The cause was two scroll views inside each other. The board scrolled in both
+directions, and each column scrolled again inside it; a `LazyVStack` given
+unbounded height concludes that all of it is visible and builds every card.
+The laziness was real code and no laziness at all.
+
+Two fixes, both in this release:
+
+- **A board without swimlanes now scrolls sideways only**, and each column
+  scrolls itself. Bounding the height is what makes the laziness real:
+  499 MB → 86 MB.
+- **A lane draws twelve cards and then says how many more there are**, with a
+  click to show the rest. Lanes cannot scroll on their own — that is what
+  makes them lanes — so everything in one is built at once, which is fine for
+  the handful a lane usually holds and ruinous for a lane holding eight
+  hundred: 503 MB → 107 MB.
+
+The calendar's "no date" strip had the same shape of problem — every undated
+card built at once — and is now lazy: 181 MB → 77 MB.
+
+The lesson worth keeping: **a nested lazy container is not lazy**, and no test
+can tell you so. Only measuring with the view on screen can.
 
 ### Measure memory the way Activity Monitor does
 
 `ps -o rss` is misleading here: it counts shared framework pages, and reports
-about 158 MB for a process whose actual footprint is 84 MB. The number that
+about 192 MB for a process whose actual footprint is 107 MB. The number that
 matches Activity Monitor's "Memory" column is the physical footprint:
 
 ```sh
@@ -52,10 +80,13 @@ memory. A board of two hundred cards costs the same handful of statements as a
 board of two. The link cache exists precisely because the timeline once asked
 per card per redraw.
 
-**Lazy where it pays.** Full-height columns use `LazyVStack`, so a column of
-five hundred cards renders what is on screen. Lanes deliberately do **not**:
-they hold a handful of cards, and a lazy stack nested in the board's two-way
-scroll view could not work out which part of itself was visible.
+**Lazy where it pays, and bounded where it cannot be.** A full-height column
+uses `LazyVStack` inside its own vertical scroll view, and the board around it
+scrolls sideways only — so the column has a real height and the laziness
+works. A lane has no scroll view of its own, so it is capped at twelve cards
+with a "more…" button rather than made lazy: a lazy stack nested in a view
+that also scrolls vertically builds everything, which is the bug this
+release fixed.
 
 **Analytics are computed, never cached.** The cumulative flow diagram, control
 chart, burndown and burnup all replay `status_change` when the screen opens.

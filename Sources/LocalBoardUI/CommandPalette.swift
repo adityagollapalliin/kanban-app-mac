@@ -157,6 +157,10 @@ struct CommandPalette: View {
         var list: [PaletteResult] = [
             PaletteResult(id: "screen-board", title: "Go to Board", symbol: "rectangle.split.3x1",
                           keywords: "board columns") { onOpenScreen(.board) },
+            PaletteResult(id: "screen-list", title: "Go to List", symbol: "list.bullet.rectangle",
+                          keywords: "list table sort group") { onOpenScreen(.list) },
+            PaletteResult(id: "screen-calendar", title: "Go to Calendar", symbol: "calendar",
+                          keywords: "calendar month due dates") { onOpenScreen(.calendar) },
             PaletteResult(id: "screen-backlog", title: "Go to Backlog", symbol: "tray.2",
                           keywords: "backlog waiting") { onOpenScreen(.backlog) },
             PaletteResult(id: "screen-timeline", title: "Go to Timeline", symbol: "chart.bar.xaxis",

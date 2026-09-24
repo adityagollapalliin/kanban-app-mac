@@ -20,6 +20,10 @@ public struct RootView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        // nil means "follow the Mac", which is what `system` is for: an
+        // explicit .light would freeze the app in light mode rather than
+        // following a Mac that switches at sunset.
+        .preferredColorScheme(environment.board?.appearance.colorScheme)
         // An empty accent means the one the user chose in System Settings,
         // which is the right default: the app should look like the rest of
         // their Mac unless they ask otherwise.

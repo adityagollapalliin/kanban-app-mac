@@ -37,6 +37,10 @@ public struct TaskWindow: View {
             }
         }
         .frame(minWidth: 320, minHeight: 420)
+        // A card in its own window is the same app, so it follows the same
+        // appearance and accent as the board it came from.
+        .preferredColorScheme(environment.board?.appearance.colorScheme)
+        .tint(environment.board.flatMap { $0.accentName.isEmpty ? nil : PaletteColor.named($0.accentName).color })
     }
 
     private func task(in model: BoardViewModel) -> BoardTask? {

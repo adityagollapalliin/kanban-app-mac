@@ -31,6 +31,7 @@ struct BoardColumnView: View {
     @State private var isRenaming = false
     @State private var renamedTo = ""
     @State private var isSettingLimits = false
+    @State private var isShowingWholeLane = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable { case top, bottom }
@@ -55,6 +56,21 @@ struct BoardColumnView: View {
         }
         .frame(width: 300)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        // ⌘N. A token rather than a flag, so pressing it twice opens the field
+        // twice — the second press of a flag that is already true does nothing,
+        // which reads as the shortcut being broken.
+        .onChange(of: model.quickAddToken) {
+            guard model.quickAddStatusID == column.status.id, answersQuickAdd else { return }
+            isAddingAtTop = true
+            focusedField = .top
+        }
+    }
+
+    /// A laned board draws this column once per lane, and only one of them
+    /// should open a field: otherwise ⌘N opens four, and the card would land
+    /// in whichever one was typed into regardless of the lane it was under.
+    private var answersQuickAdd: Bool {
+        !isLane || laneID == model.lanes.first?.id
     }
 
     /// Lazy in a full-height column, which can hold hundreds; eager in a
@@ -79,9 +95,11 @@ struct BoardColumnView: View {
 
     @ViewBuilder
     private var cardStack: some View {
-        ForEach(column.tasks) { task in
+        ForEach(shownTasks) { task in
             card(task)
         }
+
+        if hiddenCount > 0 { moreButton }
 
             // The rest of the column: a drop here means "put it last".
             Color.clear
@@ -94,6 +112,43 @@ struct BoardColumnView: View {
                 } isTargeted: { targeted in
                     dropTarget = targeted ? endOfColumn : (dropTarget == endOfColumn ? nil : dropTarget)
                 }
+    }
+
+    /// How many cards a lane draws before asking.
+    ///
+    /// A lane is a band across the board, and it cannot scroll on its own —
+    /// so everything in it is built at once. That is fine for the handful a
+    /// lane usually holds and ruinous for a lane holding eight hundred: the
+    /// cards alone came to half a gigabyte before this cap existed. A full
+    /// column has its own scroll view and needs no cap.
+    private static let laneCardCap = 12
+
+    private var shownTasks: [BoardTask] {
+        guard isLane, !isShowingWholeLane, column.tasks.count > Self.laneCardCap else {
+            return column.tasks
+        }
+        return Array(column.tasks.prefix(Self.laneCardCap))
+    }
+
+    private var hiddenCount: Int { column.tasks.count - shownTasks.count }
+
+    /// Says how many rather than hiding them silently, and opens them on
+    /// request — the cap is about what is drawn by default, not about what the
+    /// user is allowed to see.
+    private var moreButton: some View {
+        Button {
+            isShowingWholeLane = true
+        } label: {
+            Text("\(hiddenCount) more…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("This lane holds \(column.tasks.count) cards. Shows the rest.")
+        .accessibilityLabel("Show \(hiddenCount) more cards in this lane")
     }
 
     private func card(_ task: BoardTask) -> some View {

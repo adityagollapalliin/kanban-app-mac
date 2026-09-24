@@ -38,6 +38,14 @@ struct TaskCardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        // Where the keyboard is, drawn as a ring outside the border so it can
+        // be seen on a card that is also open or picked — three different
+        // things that can all be true of one card at once.
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.accentColor.opacity(isFocused ? 0.9 : 0), lineWidth: 2)
+                .padding(-3)
+        }
         .opacity(task.trashed ? 0.6 : 1)
         .overlay(border)
         .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -294,6 +302,11 @@ struct TaskCardView: View {
     private func handleTap() {
         let modifiers = NSEvent.modifierFlags
 
+        // Clicking a card is also where the keyboard picks up from, so the
+        // arrow keys continue from what was last touched rather than jumping
+        // back to the top left.
+        model.focus(task.id)
+
         if modifiers.contains(.shift) {
             model.extendPick(to: task.id)
         } else if modifiers.contains(.command) {
@@ -331,6 +344,10 @@ struct TaskCardView: View {
     private var daysInColumn: Int { task.daysInColumn(now: .now) }
 
     private var isOpen: Bool { model.selectedTaskID == task.id }
+
+    /// Where the keyboard is. Not the same as open and not the same as
+    /// picked: focus travels without changing anything.
+    private var isFocused: Bool { model.focusedTaskID == task.id }
 
     private var isPicked: Bool { model.isPicked(task.id) }
 
@@ -377,61 +394,12 @@ struct TaskCardView: View {
         return formatter
     }()
 
-    private var typeSymbol: String {
-        switch task.type {
-        case .epic: "flag.fill"
-        case .story: "book.closed.fill"
-        case .task: "checkmark.square"
-        case .bug: "ladybug.fill"
-        }
-    }
-
-    private var typeLabel: String {
-        switch task.type {
-        case .epic: "Epic"
-        case .story: "Story"
-        case .task: "Task"
-        case .bug: "Bug"
-        }
-    }
-
-    private var typeColor: Color {
-        switch task.type {
-        case .epic: .purple
-        case .story: .green
-        case .task: .secondary
-        case .bug: .red
-        }
-    }
-
-    /// Priority reads as a direction, so the arrow carries it and the colour
-    /// only reinforces it — the board stays legible without colour.
-    private var prioritySymbol: String {
-        switch task.priority {
-        case .lowest: "chevron.down.2"
-        case .low: "chevron.down"
-        case .normal: "minus"
-        case .high: "chevron.up"
-        case .highest: "chevron.up.2"
-        }
-    }
-
-    private var priorityLabel: String {
-        switch task.priority {
-        case .lowest: "Lowest"
-        case .low: "Low"
-        case .normal: "Normal"
-        case .high: "High"
-        case .highest: "Highest"
-        }
-    }
-
-    private var priorityColor: Color {
-        switch task.priority {
-        case .lowest, .low: .secondary
-        case .normal: .secondary
-        case .high: .orange
-        case .highest: .red
-        }
-    }
+    // The board, the list and the calendar draw these the same way, so the
+    // answer lives in one place rather than in each view.
+    private var typeSymbol: String { CardAppearance.symbol(forType: task.type) }
+    private var typeLabel: String { CardAppearance.label(forType: task.type) }
+    private var typeColor: Color { CardAppearance.color(forType: task.type) }
+    private var prioritySymbol: String { CardAppearance.symbol(forPriority: task.priority) }
+    private var priorityLabel: String { CardAppearance.label(forPriority: task.priority) }
+    private var priorityColor: Color { CardAppearance.color(forPriority: task.priority) }
 }

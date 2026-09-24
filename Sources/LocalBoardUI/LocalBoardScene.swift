@@ -21,7 +21,16 @@ public struct LocalBoardScene: App {
         }
         .defaultSize(width: 1_180, height: 760)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            // The brief's global new-card shortcut. It opens the add-a-card
+            // field in the column the keyboard is already in, rather than
+            // creating an untitled card somewhere and making someone find it.
+            CommandGroup(replacing: .newItem) {
+                Button("New Card") {
+                    environment.board?.requestQuickAdd()
+                }
+                .keyboardShortcut("n")
+                .disabled(environment.board?.snapshot == nil)
+            }
 
             // Undo and redo belong in the Edit menu with their standard
             // shortcuts, not only on a button somebody has to find.

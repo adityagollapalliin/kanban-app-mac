@@ -340,3 +340,31 @@ public enum Density: Int, Sendable, CaseIterable, Codable {
     public var cardSpacing: Double { self == .compact ? 5 : 8 }
     public var showsSecondaryRows: Bool { self == .comfortable }
 }
+
+/// Which set of colours the app draws in.
+///
+/// `system` is the default and means "whatever the Mac is doing", including
+/// following it when the user changes it mid-session. The other two are a
+/// deliberate override: someone who wants a dark board on a light Mac is
+/// asking for one board to disagree with the rest, and that is allowed.
+public enum Appearance: Int, Sendable, CaseIterable, Codable {
+    case system = 0
+    case light = 1
+    case dark = 2
+
+    public var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max"
+        case .dark: "moon"
+        }
+    }
+}
