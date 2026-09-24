@@ -75,7 +75,22 @@ public final class BoardViewModel {
 
     /// The card open in the inspector. Cleared when the card leaves the board,
     /// so closing is never something the user has to do after a trash.
-    public var selectedTaskID: String?
+    public var selectedTaskID: String? {
+        didSet {
+            guard selectedTaskID != oldValue else { return }
+            loadSelectionDetails()
+        }
+    }
+
+    /// The open card's checklist and subtasks. Loaded when the selection
+    /// changes rather than for every card on the board, because only one card
+    /// is ever open.
+    public private(set) var checklist: [ChecklistItem] = []
+    public private(set) var subtasks: [BoardTask] = []
+
+    /// Project-wide lists the inspector offers.
+    public private(set) var labels: [CardLabel] = []
+    public private(set) var epics: [BoardTask] = []
 
     /// Clicking a card opens it; clicking the open one closes it again. The
     /// card is the control, so it has to work in both directions — an
@@ -104,6 +119,8 @@ public final class BoardViewModel {
     private let taskRepository: TaskRepository
     private let personRepository: PersonRepository
     private let savedViewRepository: SavedViewRepository
+    private let labelRepository: LabelRepository
+    private let checklistRepository: ChecklistRepository
 
     public init(database: Database, clock: any ClockProvider = SystemClock()) {
         self.database = database
@@ -111,6 +128,8 @@ public final class BoardViewModel {
         self.taskRepository = TaskRepository(database: database, clock: clock)
         self.personRepository = PersonRepository(database: database, clock: clock)
         self.savedViewRepository = SavedViewRepository(database: database, clock: clock)
+        self.labelRepository = LabelRepository(database: database)
+        self.checklistRepository = ChecklistRepository(database: database, clock: clock)
     }
 
     // MARK: - Loading
@@ -153,7 +172,22 @@ public final class BoardViewModel {
             people = try personRepository.people()
             if let projectID = snapshot?.board.projectID {
                 savedViews = try savedViewRepository.views(inProject: projectID)
+                labels = try labelRepository.labels(inProject: projectID)
+                epics = try taskRepository.epics(inProject: projectID)
             }
+        }
+        loadSelectionDetails()
+    }
+
+    private func loadSelectionDetails() {
+        guard let selectedTaskID else {
+            checklist = []
+            subtasks = []
+            return
+        }
+        perform {
+            checklist = try checklistRepository.items(forTask: selectedTaskID)
+            subtasks = try taskRepository.subtasks(of: selectedTaskID)
         }
     }
 
@@ -369,6 +403,206 @@ public final class BoardViewModel {
             if let projectID = snapshot?.board.projectID {
                 savedViews = try savedViewRepository.views(inProject: projectID)
             }
+        }
+    }
+
+    // MARK: - What a card carries
+
+    public func labels(for task: BoardTask) -> [CardLabel] {
+        snapshot?.labels[task.id] ?? []
+    }
+
+    public func checklistProgress(for task: BoardTask) -> ChecklistProgress? {
+        snapshot?.checklists[task.id]
+    }
+
+    public func subtaskProgress(for task: BoardTask) -> ChecklistProgress? {
+        snapshot?.subtasks[task.id]
+    }
+
+    public func epic(for task: BoardTask) -> BoardTask? {
+        guard let epicID = task.epicID else { return nil }
+        return epics.first { $0.id == epicID }
+    }
+
+    // MARK: - Labels
+
+    public func createLabel(named name: String, color: String = "slate") {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try labelRepository.create(inProject: projectID, name: name, color: color)
+            labels = try labelRepository.labels(inProject: projectID)
+        }
+    }
+
+    public func setLabel(_ labelID: String, on taskID: String, attached: Bool) {
+        perform {
+            try labelRepository.setLabel(labelID, on: taskID, attached: attached)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteLabel(_ labelID: String) {
+        guard let projectID = snapshot?.board.projectID else { return }
+        perform {
+            try labelRepository.delete(labelID)
+            labels = try labelRepository.labels(inProject: projectID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Checklists
+
+    public func addChecklistItem(_ text: String, to taskID: String) {
+        perform {
+            try checklistRepository.add(toTask: taskID, text: text)
+            reloadSnapshot()
+        }
+    }
+
+    public func setChecklistItem(_ itemID: String, done: Bool) {
+        perform {
+            try checklistRepository.setDone(done, for: itemID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setChecklistItem(_ itemID: String, text: String) {
+        perform {
+            try checklistRepository.setText(text, for: itemID)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteChecklistItem(_ itemID: String) {
+        perform {
+            try checklistRepository.delete(itemID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Hierarchy
+
+    public func setParent(_ parentID: String?, for taskID: String) {
+        perform {
+            try taskRepository.setParent(parentID, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setEpic(_ epicID: String?, for taskID: String) {
+        perform {
+            try taskRepository.setEpic(epicID, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Adds a card and files it under this one in a single action, since
+    /// "add a subtask" is one thought.
+    public func addSubtask(_ title: String, to parentID: String) {
+        guard let parent = snapshot?.columns.lazy.flatMap(\.tasks).first(where: { $0.id == parentID })
+        else { return }
+
+        perform {
+            let child = try taskRepository.create(
+                inProject: parent.projectID,
+                statusID: parent.statusID,
+                title: title
+            )
+            try taskRepository.setParent(parentID, for: child.id)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Reshaping the board
+
+    public func createProject(named name: String, key: String) {
+        guard let workspaceID = workspaces.first?.id else { return }
+        perform {
+            let project = try boardRepository.createProject(inWorkspace: workspaceID, name: name, key: key)
+            load()
+            selectedBoardID = try boardRepository.boards(inProject: project.id).first?.id
+        }
+    }
+
+    public func renameProject(_ projectID: String, to name: String) {
+        perform {
+            try boardRepository.renameProject(projectID, to: name)
+            load()
+        }
+    }
+
+    public func deleteProject(_ projectID: String) {
+        perform {
+            try boardRepository.deleteProject(projectID)
+            selectedBoardID = nil
+            load()
+        }
+    }
+
+    public func createBoard(named name: String, inProject projectID: String) {
+        perform {
+            let board = try boardRepository.createBoard(inProject: projectID, name: name)
+            load()
+            selectedBoardID = board.id
+        }
+    }
+
+    public func renameBoard(_ boardID: String, to name: String) {
+        perform {
+            try boardRepository.renameBoard(boardID, to: name)
+            load()
+        }
+    }
+
+    public func deleteBoard(_ boardID: String) {
+        perform {
+            try boardRepository.deleteBoard(boardID)
+            if selectedBoardID == boardID { selectedBoardID = nil }
+            load()
+        }
+    }
+
+    public func addColumn(named name: String, category: StatusCategory = .toDo) {
+        guard let boardID = selectedBoardID else { return }
+        perform {
+            try boardRepository.addColumn(toBoard: boardID, name: name, category: category)
+            reloadSnapshot()
+        }
+    }
+
+    public func renameColumn(_ columnID: String, to name: String) {
+        perform {
+            try boardRepository.renameColumn(columnID, to: name)
+            reloadSnapshot()
+        }
+    }
+
+    public func setWIPLimit(_ limit: Int?, for columnID: String) {
+        perform {
+            try boardRepository.setWIPLimit(limit, for: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setCategory(_ category: StatusCategory, for columnID: String) {
+        perform {
+            try boardRepository.setCategory(category, for: columnID)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteColumn(_ columnID: String, movingTasksTo destinationStatusID: String?) {
+        perform {
+            try boardRepository.deleteColumn(columnID, movingTasksTo: destinationStatusID)
+            reloadSnapshot()
+        }
+    }
+
+    public func moveColumn(_ columnID: String, after: String?, before: String?) {
+        perform {
+            try boardRepository.moveColumn(columnID, after: after, before: before)
+            reloadSnapshot()
         }
     }
 

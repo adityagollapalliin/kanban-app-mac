@@ -14,13 +14,13 @@ public struct LabelRepository {
         self.database = database
     }
 
-    public func labels(inProject projectID: String) throws -> [Label] {
+    public func labels(inProject projectID: String) throws -> [CardLabel] {
         try database.query("SELECT * FROM label WHERE project_id = ? ORDER BY name;", [projectID])
-            .map(Label.init(row:))
+            .map(CardLabel.init(row:))
     }
 
     @discardableResult
-    public func create(inProject projectID: String, name: String, color: String = "slate") throws -> Label {
+    public func create(inProject projectID: String, name: String, color: String = "slate") throws -> CardLabel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw LocalBoardError.invalidInput(field: "name", detail: "A label needs a name.")
@@ -41,7 +41,7 @@ public struct LabelRepository {
             "INSERT INTO label (id, project_id, name, color) VALUES (?, ?, ?, ?);",
             [id, projectID, trimmed, color]
         )
-        return Label(id: id, projectID: projectID, name: trimmed, color: color)
+        return CardLabel(id: id, projectID: projectID, name: trimmed, color: color)
     }
 
     public func rename(_ labelID: String, to name: String) throws {
@@ -66,7 +66,7 @@ public struct LabelRepository {
 
     // MARK: - Which cards carry which
 
-    public func labels(forTask taskID: String) throws -> [Label] {
+    public func labels(forTask taskID: String) throws -> [CardLabel] {
         try database.query(
             """
             SELECT label.* FROM label
@@ -75,12 +75,12 @@ public struct LabelRepository {
             ORDER BY label.name;
             """,
             [taskID]
-        ).map(Label.init(row:))
+        ).map(CardLabel.init(row:))
     }
 
     /// Every card's labels in one query, for drawing a whole board.
-    public func labelsByTask(inProject projectID: String) throws -> [String: [Label]] {
-        var grouped: [String: [Label]] = [:]
+    public func labelsByTask(inProject projectID: String) throws -> [String: [CardLabel]] {
+        var grouped: [String: [CardLabel]] = [:]
         try database.forEachRow(
             """
             SELECT task_label.task_id AS task_id, label.* FROM label
@@ -92,7 +92,7 @@ public struct LabelRepository {
             [projectID]
         ) { row in
             let taskID = try row.requiredString("task_id")
-            grouped[taskID, default: []].append(try Label(row: row))
+            grouped[taskID, default: []].append(try CardLabel(row: row))
         }
         return grouped
     }

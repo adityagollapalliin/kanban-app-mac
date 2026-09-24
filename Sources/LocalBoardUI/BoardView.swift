@@ -11,6 +11,20 @@ struct BoardView: View {
     @State private var isNamingView = false
     @State private var newViewName = ""
 
+    @State private var isAddingColumn = false
+    @State private var newColumnName = ""
+
+    @State private var isAddingProject = false
+    @State private var newProjectName = ""
+    @State private var newProjectKey = ""
+
+    @State private var isAddingBoard = false
+    @State private var newBoardName = ""
+    @State private var boardParentProject: String?
+
+    @State private var renamingBoardID: String?
+    @State private var renamedBoardName = ""
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -51,6 +65,16 @@ struct BoardView: View {
                     ForEach(model.boards.filter { $0.projectID == project.id }) { board in
                         Label(board.name, systemImage: "rectangle.split.3x1")
                             .tag(board.id)
+                            .contextMenu {
+                                Button("Rename Board…") {
+                                    renamedBoardName = board.name
+                                    renamingBoardID = board.id
+                                }
+                                Button("Delete Board", systemImage: "trash", role: .destructive) {
+                                    model.deleteBoard(board.id)
+                                }
+                                .disabled(model.boards.filter { $0.projectID == project.id }.count < 2)
+                            }
                     }
                 } header: {
                     HStack(spacing: 6) {
@@ -58,6 +82,17 @@ struct BoardView: View {
                         Text(project.key)
                             .font(.caption2.monospaced())
                             .foregroundStyle(.tertiary)
+                    }
+                    .contextMenu {
+                        Button("New Board…") {
+                            newBoardName = ""
+                            boardParentProject = project.id
+                            isAddingBoard = true
+                        }
+                        Divider()
+                        Button("Delete Project", systemImage: "trash", role: .destructive) {
+                            model.deleteProject(project.id)
+                        }
                     }
                 }
             }
@@ -73,6 +108,24 @@ struct BoardView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button {
+                    newProjectName = ""
+                    newProjectKey = ""
+                    isAddingProject = true
+                } label: {
+                    Label("New Project", systemImage: "plus")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
     }
 
     private var trashRow: some View {
@@ -172,6 +225,64 @@ struct BoardView: View {
             }
         }
         .sheet(isPresented: $isNamingView) { namingSheet }
+        .alert("New column", isPresented: $isAddingColumn) {
+            TextField("Name", text: $newColumnName)
+            Button("Cancel", role: .cancel) {}
+            Button("Add") { model.addColumn(named: newColumnName) }
+        } message: {
+            Text("It starts as a to-do column. Change that from the column's menu.")
+        }
+        .alert("New project", isPresented: $isAddingProject) {
+            TextField("Name", text: $newProjectName)
+            TextField("Key, like WORK", text: $newProjectKey)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") { model.createProject(named: newProjectName, key: newProjectKey) }
+        } message: {
+            Text("The key goes in front of every card number in the project.")
+        }
+        .alert("New board", isPresented: $isAddingBoard) {
+            TextField("Name", text: $newBoardName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                if let projectID = boardParentProject {
+                    model.createBoard(named: newBoardName, inProject: projectID)
+                }
+            }
+        } message: {
+            Text("A second board over the same project, showing the same cards.")
+        }
+        .alert("Rename board", isPresented: Binding(
+            get: { renamingBoardID != nil },
+            set: { if !$0 { renamingBoardID = nil } }
+        )) {
+            TextField("Name", text: $renamedBoardName)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                if let boardID = renamingBoardID { model.renameBoard(boardID, to: renamedBoardName) }
+            }
+        }
+    }
+
+    /// Sits where the next column would be, which is where someone looks for
+    /// it — rather than in a menu they would have to go hunting through.
+    private var addColumnButton: some View {
+        Button {
+            newColumnName = ""
+            isAddingColumn = true
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.title3)
+                Text("Add Column")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .frame(width: 160)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var namingSheet: some View {
@@ -246,6 +357,8 @@ struct BoardView: View {
                 ForEach(model.visibleColumns) { column in
                     BoardColumnView(column: column, model: model)
                 }
+
+                addColumnButton
             }
             .padding(16)
             .frame(maxHeight: .infinity, alignment: .top)

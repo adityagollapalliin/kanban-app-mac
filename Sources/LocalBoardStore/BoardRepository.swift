@@ -12,7 +12,7 @@ public struct BoardSnapshot: Sendable, Equatable, Identifiable {
     /// What each card carries, keyed by card id. Gathered in one query each
     /// rather than per card, so a board of two hundred cards costs the same
     /// handful of statements as a board of two.
-    public let labels: [String: [Label]]
+    public let labels: [String: [CardLabel]]
     public let checklists: [String: ChecklistProgress]
     public let subtasks: [String: ChecklistProgress]
 
@@ -22,7 +22,7 @@ public struct BoardSnapshot: Sendable, Equatable, Identifiable {
     public init(
         board: Board,
         columns: [LoadedColumn],
-        labels: [String: [Label]] = [:],
+        labels: [String: [CardLabel]] = [:],
         checklists: [String: ChecklistProgress] = [:],
         subtasks: [String: ChecklistProgress] = [:]
     ) {

@@ -131,7 +131,7 @@ extension Person {
     }
 }
 
-extension Label {
+extension CardLabel {
     init(row: Row) throws {
         self.init(
             id: try row.requiredString("id"),

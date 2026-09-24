@@ -57,6 +57,8 @@ func printUsage() {
           localboard export              Write the project as JSON on stdout
           localboard trash <ID>          Move a card to the trash
           localboard restore <ID>        Take it back out again
+          localboard labels              List, add or remove labels; put one on a card
+          localboard columns             List, add or remove the board's columns
           localboard people              List, add or remove people
           localboard views               List, save or remove saved views
           localboard where               Print the data, diagnostics and attachment folders
@@ -73,6 +75,10 @@ func printUsage() {
           --assignee "<name>"            Who the card is for, on `add`
           --query "<filter>"             Filter `list` with the search language
           --view "<name>"                Run a saved view with `list`
+          --color <name>                 Colour for `labels add`
+          --counts-as todo|progress|done Category for `columns add`
+          --move-to "<column>"           Where cards go when removing a column
+          --off                          Take a label off, with `labels on`
           --all                          Include trashed cards in list and export
 
         QUERY LANGUAGE
@@ -183,6 +189,10 @@ case "trash":
     status = withDatabase { trashCommand(arguments, database: $0, trashed: true) }
 case "restore":
     status = withDatabase { trashCommand(arguments, database: $0, trashed: false) }
+case "labels":
+    status = withDatabase { labelsCommand(arguments, database: $0) }
+case "columns":
+    status = withDatabase { columnsCommand(arguments, database: $0) }
 case .some(let unknown):
     Output.error("unknown command `\(unknown)`")
     printUsage()

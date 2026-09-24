@@ -351,3 +351,149 @@ func trashCommand(_ arguments: Arguments, database: Database, trashed: Bool) -> 
         return ExitStatus.success
     }
 }
+
+// MARK: - labels
+
+/// `localboard labels` / `labels add "needs design" --color purple` /
+/// `labels remove "needs design"` / `labels on TASK-3 "needs design"`
+func labelsCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let repository = LabelRepository(database: database)
+        let rest = arguments.remainder
+
+        func label(named name: String) throws -> CardLabel {
+            guard let match = try repository.labels(inProject: project.id).first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("no label called `\(name)` in \(project.key).")
+            }
+            return match
+        }
+
+        switch rest.first?.lowercased() {
+        case nil, "list":
+            let labels = try repository.labels(inProject: project.id)
+            guard !labels.isEmpty else {
+                Output.line("No labels yet. Add one with `localboard labels add \"needs design\"`.")
+                return ExitStatus.success
+            }
+            Output.table(headers: ["NAME", "COLOUR"], rows: labels.map { [$0.name, $0.color] })
+            return ExitStatus.success
+
+        case "add":
+            let created = try repository.create(
+                inProject: project.id,
+                name: rest.dropFirst().joined(separator: " "),
+                color: arguments.option("color") ?? "slate"
+            )
+            Output.line("Added \(created.name).")
+            return ExitStatus.success
+
+        case "remove", "delete":
+            let existing = try label(named: rest.dropFirst().joined(separator: " "))
+            try repository.delete(existing.id)
+            Output.line("Removed \(existing.name). The cards that carried it are untouched.")
+            return ExitStatus.success
+
+        case "on":
+            let operands = Array(rest.dropFirst())
+            guard operands.count >= 2 else {
+                throw CLIError("putting a label on a card needs both: `localboard labels on TASK-3 \"needs design\"`.")
+            }
+            let task = try selection.task(tag: operands[0], in: project)
+            let existing = try label(named: operands.dropFirst().joined(separator: " "))
+            let attaching = !arguments.flag("off")
+
+            try repository.setLabel(existing.id, on: task.id, attached: attaching)
+            Output.line(attaching
+                ? "\(task.tag(in: project)) now carries \(existing.name)."
+                : "\(task.tag(in: project)) no longer carries \(existing.name).")
+            return ExitStatus.success
+
+        case .some(let unknown):
+            throw CLIError("`labels \(unknown)` is not a thing. Try list, add, remove or on.")
+        }
+    }
+}
+
+// MARK: - columns
+
+/// `localboard columns` / `columns add "Review" --counts-as progress` /
+/// `columns remove "Review" --move-to "To Do"`
+func columnsCommand(_ arguments: Arguments, database: Database) -> Int32 {
+    runCatching {
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let repository = BoardRepository(database: database)
+
+        guard let board = try repository.boards(inProject: project.id).first else {
+            throw CLIError("\(project.key) has no board yet.")
+        }
+        let snapshot = try repository.snapshot(boardID: board.id)
+        let rest = arguments.remainder
+
+        func column(named name: String) throws -> LoadedColumn {
+            guard let match = snapshot.columns.first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                throw CLIError("no column called `\(name)` on \(board.name).")
+            }
+            return match
+        }
+
+        switch rest.first?.lowercased() {
+        case nil, "list":
+            Output.table(
+                headers: ["NAME", "COUNTS AS", "LIMIT", "CARDS"],
+                rows: snapshot.columns.map { column in
+                    [
+                        column.name,
+                        categoryLabel(column.status.category),
+                        column.column.wipLimit.map(String.init) ?? "none",
+                        "\(column.tasks.count)",
+                    ]
+                }
+            )
+            return ExitStatus.success
+
+        case "add":
+            let name = rest.dropFirst().joined(separator: " ")
+            let category = try arguments.option("counts-as").map(parseCategory) ?? .toDo
+            try repository.addColumn(toBoard: board.id, name: name, category: category)
+            Output.line("Added \(name).")
+            return ExitStatus.success
+
+        case "remove", "delete":
+            let existing = try column(named: rest.dropFirst().joined(separator: " "))
+            let destination = try arguments.option("move-to").map { try column(named: $0).status.id }
+            try repository.deleteColumn(existing.id, movingTasksTo: destination)
+            Output.line(existing.tasks.isEmpty
+                ? "Removed \(existing.name)."
+                : "Removed \(existing.name); its \(existing.tasks.count) card\(existing.tasks.count == 1 ? "" : "s") moved.")
+            return ExitStatus.success
+
+        case .some(let unknown):
+            throw CLIError("`columns \(unknown)` is not a thing. Try list, add or remove.")
+        }
+    }
+}
+
+private func parseCategory(_ raw: String) throws -> StatusCategory {
+    switch raw.lowercased() {
+    case "todo", "to-do", "to do": .toDo
+    case "progress", "in-progress", "in progress", "doing": .inProgress
+    case "done", "complete": .done
+    default:
+        throw CLIError("`--counts-as` is one of todo, progress or done. `\(raw)` is not one.")
+    }
+}
+
+private func categoryLabel(_ category: StatusCategory) -> String {
+    switch category {
+    case .toDo: "to do"
+    case .inProgress: "in progress"
+    case .done: "done"
+    }
+}

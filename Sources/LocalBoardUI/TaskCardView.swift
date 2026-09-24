@@ -45,6 +45,26 @@ struct TaskCardView: View {
                 }
             }
 
+            let labels = model.labels(for: task)
+            if !labels.isEmpty {
+                // Wrapped rather than truncated: a card's labels are the part
+                // you scan for, and a hidden one may as well not be set.
+                FlowLayout(spacing: 4) {
+                    ForEach(labels) { label in
+                        Text(label.name)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(PaletteColor.named(label.color).color.opacity(0.22), in: Capsule())
+                            .overlay(
+                                Capsule().strokeBorder(
+                                    PaletteColor.named(label.color).color.opacity(0.45), lineWidth: 1
+                                )
+                            )
+                    }
+                }
+            }
+
             Text(task.title)
                 .font(.callout)
                 .foregroundStyle(task.trashed ? .secondary : .primary)
@@ -52,10 +72,38 @@ struct TaskCardView: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let due = task.dueDate {
-                Label(due.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+            if let epic = model.epic(for: task) {
+                Label(epic.title, systemImage: "flag.fill")
                     .font(.caption2)
-                    .foregroundStyle(isOverdue ? Color.red : .secondary)
+                    .foregroundStyle(.purple)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 10) {
+                if let due = task.dueDate {
+                    Label(due.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+                        .font(.caption2)
+                        .foregroundStyle(isOverdue ? Color.red : .secondary)
+                }
+
+                if let checklist = model.checklistProgress(for: task), checklist.total > 0 {
+                    Label("\(checklist.done)/\(checklist.total)", systemImage: "checklist")
+                        .font(.caption2)
+                        .foregroundStyle(checklist.isComplete ? Color.green : .secondary)
+                }
+
+                if let subtasks = model.subtaskProgress(for: task), subtasks.total > 0 {
+                    Label("\(subtasks.done)/\(subtasks.total)", systemImage: "list.bullet.indent")
+                        .font(.caption2)
+                        .foregroundStyle(subtasks.isComplete ? Color.green : .secondary)
+                }
+
+                if task.parentID != nil {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("A subtask")
+                }
             }
         }
         .padding(10)

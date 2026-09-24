@@ -46,7 +46,7 @@ struct CardDetailTests {
         #expect(try f.labels.labels(forTask: task.id).isEmpty)
     }
 
-    @Test("Label names are unique within a project")
+    @Test("CardLabel names are unique within a project")
     func labelNames() throws {
         let f = try fixture()
         try f.labels.create(inProject: f.ids.project, name: "bug")

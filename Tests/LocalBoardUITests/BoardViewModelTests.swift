@@ -494,6 +494,150 @@ struct BoardViewModelTests {
         #expect(model.savedViews.map(\.name) == ["Late"])
     }
 
+    // MARK: - Reshaping
+
+    @Test("A column can be added, renamed and removed from the board")
+    func columns() throws {
+        let model = try loadedModel()
+        #expect(model.visibleColumns.map(\.name) == ["To Do", "In Progress", "Done"])
+
+        model.addColumn(named: "Review", category: .inProgress)
+        #expect(model.visibleColumns.map(\.name) == ["To Do", "In Progress", "Done", "Review"])
+
+        let review = try #require(model.visibleColumns.last)
+        model.renameColumn(review.id, to: "In Review")
+        #expect(model.visibleColumns.map(\.name).last == "In Review")
+
+        model.setWIPLimit(2, for: review.id)
+        #expect(model.visibleColumns.last?.column.wipLimit == 2)
+
+        model.deleteColumn(review.id, movingTasksTo: nil)
+        #expect(model.visibleColumns.map(\.name) == ["To Do", "In Progress", "Done"])
+        #expect(model.failure == nil)
+    }
+
+    /// Losing work to a tidy-up would be the worst kind of bug, so the cards
+    /// move rather than going with the column.
+    @Test("Deleting a column carries its cards to another one")
+    func deletingColumnMovesCards() throws {
+        let model = try loadedModel()
+        model.addTask(title: "Still needed", toStatus: column(model, 1).status.id)
+
+        let doomed = column(model, 1)
+        model.deleteColumn(doomed.id, movingTasksTo: column(model, 0).status.id)
+
+        #expect(model.visibleColumns.map(\.name) == ["To Do", "Done"])
+        #expect(model.visibleColumns[0].tasks.map(\.title) == ["Still needed"])
+    }
+
+    @Test("A new project opens with its own board and columns")
+    func projects() throws {
+        let model = try loadedModel()
+        model.addTask(title: "Old project card", toStatus: column(model, 0).status.id)
+
+        model.createProject(named: "Second", key: "TWO")
+
+        #expect(model.projects.count == 2)
+        #expect(model.visibleColumns.map(\.name) == ["To Do", "In Progress", "Done"])
+        #expect(model.totalTaskCount == 0, "the new project starts empty")
+    }
+
+    @Test("A second board over a project shows the same cards")
+    func boards() throws {
+        let model = try loadedModel()
+        model.addTask(title: "Shared", toStatus: column(model, 0).status.id)
+        let projectID = try #require(model.snapshot?.board.projectID)
+
+        model.createBoard(named: "Planning", inProject: projectID)
+
+        #expect(model.boards.count == 2)
+        #expect(model.totalTaskCount == 1, "the cards belong to the project, not the board")
+    }
+
+    // MARK: - Labels, checklists, subtasks
+
+    @Test("A label can be made, put on a card and taken off")
+    func labels() throws {
+        let model = try loadedModel()
+        model.addTask(title: "A card", toStatus: column(model, 0).status.id)
+        let task = try #require(column(model, 0).tasks.first)
+
+        model.createLabel(named: "needs design")
+        let label = try #require(model.labels.first)
+
+        model.setLabel(label.id, on: task.id, attached: true)
+        #expect(model.labels(for: try #require(column(model, 0).tasks.first)).map(\.name) == ["needs design"])
+
+        model.setLabel(label.id, on: task.id, attached: false)
+        #expect(model.labels(for: try #require(column(model, 0).tasks.first)).isEmpty)
+    }
+
+    @Test("A checklist counts down as its boxes are ticked")
+    func checklist() throws {
+        let model = try loadedModel()
+        model.addTask(title: "With steps", toStatus: column(model, 0).status.id)
+        let task = try #require(column(model, 0).tasks.first)
+        model.selectedTaskID = task.id
+
+        model.addChecklistItem("Write it", to: task.id)
+        model.addChecklistItem("Test it", to: task.id)
+        #expect(model.checklist.map(\.text) == ["Write it", "Test it"])
+
+        let first = try #require(model.checklist.first)
+        model.setChecklistItem(first.id, done: true)
+
+        #expect(model.checklistProgress(for: task) == ChecklistProgress(done: 1, total: 2))
+
+        model.deleteChecklistItem(first.id)
+        #expect(model.checklist.count == 1)
+    }
+
+    @Test("Adding a subtask files a new card under this one")
+    func subtasks() throws {
+        let model = try loadedModel()
+        model.addTask(title: "Parent", toStatus: column(model, 0).status.id)
+        let parent = try #require(column(model, 0).tasks.first)
+        model.selectedTaskID = parent.id
+
+        model.addSubtask("A step of its own", to: parent.id)
+
+        #expect(model.subtasks.map(\.title) == ["A step of its own"])
+        #expect(model.subtaskProgress(for: parent) == ChecklistProgress(done: 0, total: 1))
+        #expect(model.totalTaskCount == 2, "a subtask is a card, and appears on the board")
+    }
+
+    @Test("Work can be filed under an epic")
+    func epics() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "Milestone 3", toStatus: status)
+        model.addTask(title: "Some work", toStatus: status)
+
+        let epic = try #require(column(model, 0).tasks.first { $0.title == "Milestone 3" })
+        let work = try #require(column(model, 0).tasks.first { $0.title == "Some work" })
+
+        model.setType(.epic, for: epic.id)
+        model.setEpic(epic.id, for: work.id)
+
+        let filed = try #require(column(model, 0).tasks.first { $0.id == work.id })
+        #expect(model.epic(for: filed)?.title == "Milestone 3")
+        #expect(model.failure == nil)
+    }
+
+    /// The store refuses a loop; the model has to surface that rather than
+    /// swallow it.
+    @Test("A refused parent shows up as a failure")
+    func cycleIsReported() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "Only card", toStatus: status)
+        let task = try #require(column(model, 0).tasks.first)
+
+        model.setParent(task.id, for: task.id)
+
+        #expect(model.failure != nil)
+    }
+
     // MARK: - Editing
 
     @Test("Edits from the inspector reach the board")

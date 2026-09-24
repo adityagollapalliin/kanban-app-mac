@@ -137,7 +137,7 @@ public struct Person: Sendable, Equatable, Identifiable, Codable {
     }
 }
 
-public struct Label: Sendable, Equatable, Identifiable, Codable {
+public struct CardLabel: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var projectID: String
     public var name: String
