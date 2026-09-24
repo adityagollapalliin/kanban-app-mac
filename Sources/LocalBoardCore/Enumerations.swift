@@ -201,3 +201,118 @@ public enum LinkKind: Int, Sendable, CaseIterable, Codable {
         }
     }
 }
+
+/// What kind of value a custom field holds.
+///
+/// The kind decides which column of `custom_field_value` is used, which is why
+/// it is fixed at creation: changing a field from text to number afterwards
+/// would leave every existing value in the wrong column.
+public enum CustomFieldKind: Int, Sendable, CaseIterable, Codable {
+    case text = 0
+    case number = 1
+    case date = 2
+    /// One of a fixed list the project defines.
+    case choice = 3
+    case checkbox = 4
+
+    public var label: String {
+        switch self {
+        case .text: "Text"
+        case .number: "Number"
+        case .date: "Date"
+        case .choice: "Choice"
+        case .checkbox: "Checkbox"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .text: "textformat"
+        case .number: "number"
+        case .date: "calendar"
+        case .choice: "list.bullet"
+        case .checkbox: "checkmark.square"
+        }
+    }
+}
+
+/// Where a sprint is in its life.
+public enum SprintState: Int, Sendable, CaseIterable, Codable {
+    case planned = 0
+    case active = 1
+    case complete = 2
+
+    public var label: String {
+        switch self {
+        case .planned: "Planned"
+        case .active: "Active"
+        case .complete: "Complete"
+        }
+    }
+}
+
+/// What sets an automation off.
+public enum AutomationTrigger: Int, Sendable, CaseIterable, Codable {
+    /// A card arrives in a particular column.
+    case statusChanged = 0
+    /// The last of a card's subtasks is ticked off.
+    case allSubtasksDone = 1
+    /// A card is created.
+    case created = 2
+
+    public var label: String {
+        switch self {
+        case .statusChanged: "When a card reaches"
+        case .allSubtasksDone: "When every subtask is done"
+        case .created: "When a card is created"
+        }
+    }
+}
+
+/// What an automation does about it.
+public enum AutomationAction: Int, Sendable, CaseIterable, Codable {
+    case moveToStatus = 0
+    case setAssignee = 1
+    case setPriority = 2
+    case addLabel = 3
+    case setFlag = 4
+    case clearFlag = 5
+
+    public var label: String {
+        switch self {
+        case .moveToStatus: "Move it to"
+        case .setAssignee: "Assign it to"
+        case .setPriority: "Set its priority to"
+        case .addLabel: "Add the label"
+        case .setFlag: "Flag it"
+        case .clearFlag: "Remove its flag"
+        }
+    }
+
+    /// Whether the action needs something naming alongside it.
+    public var needsValue: Bool { self != .clearFlag }
+}
+
+/// What a template makes.
+public enum TemplateKind: Int, Sendable, CaseIterable, Codable {
+    case card = 0
+    case project = 1
+}
+
+/// How much room the board gives each card.
+public enum Density: Int, Sendable, CaseIterable, Codable {
+    case comfortable = 0
+    case compact = 1
+
+    public var label: String {
+        switch self {
+        case .comfortable: "Comfortable"
+        case .compact: "Compact"
+        }
+    }
+
+    /// Padding inside a card, and the gap between them.
+    public var cardPadding: Double { self == .compact ? 6 : 10 }
+    public var cardSpacing: Double { self == .compact ? 5 : 8 }
+    public var showsSecondaryRows: Bool { self == .comfortable }
+}

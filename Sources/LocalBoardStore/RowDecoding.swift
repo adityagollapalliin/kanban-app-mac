@@ -76,6 +76,7 @@ extension Project {
             descriptionMarkdown: row.string("description_md") ?? "",
             nextTaskNumber: try row.requiredInt("next_task_number"),
             archived: try row.requiredBool("archived"),
+            enforcesWorkflow: row.bool("enforce_workflow") ?? false,
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
         )
@@ -192,6 +193,7 @@ extension BoardTask {
             flagReason: row.string("flag_reason") ?? "",
             statusChangedAt: row.date("status_changed_at"),
             versionID: row.string("version_id"),
+            sprintID: row.string("sprint_id"),
             createdAt: try row.requiredDate("created_at"),
             updatedAt: try row.requiredDate("updated_at"),
             completedAt: row.date("completed_at")
@@ -323,6 +325,88 @@ extension WorkLogEntry {
             note: row.string("note") ?? "",
             workedOn: try row.requiredDate("worked_on"),
             createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension CustomField {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            kind: try row.requiredEnum("kind", CustomFieldKind.self),
+            options: CustomField.options(from: row.string("options") ?? ""),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Sprint {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            goal: row.string("goal") ?? "",
+            state: try row.requiredEnum("state", SprintState.self),
+            startsAt: row.date("starts_at"),
+            endsAt: row.date("ends_at"),
+            completedAt: row.date("completed_at"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension WorkflowTransition {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            fromStatusID: try row.requiredString("from_status_id"),
+            toStatusID: try row.requiredString("to_status_id")
+        )
+    }
+}
+
+extension Automation {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            trigger: try row.requiredEnum("trigger", AutomationTrigger.self),
+            triggerStatusID: row.string("trigger_status_id"),
+            action: try row.requiredEnum("action", AutomationAction.self),
+            actionValue: row.string("action_value") ?? "",
+            enabled: try row.requiredBool("enabled"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Template {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: row.string("project_id"),
+            kind: try row.requiredEnum("kind", TemplateKind.self),
+            name: try row.requiredString("name"),
+            payload: try row.requiredString("payload"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension RunningTimer {
+    init(row: Row) throws {
+        self.init(
+            taskID: try row.requiredString("task_id"),
+            personID: row.string("person_id"),
+            startedAt: try row.requiredDate("started_at")
         )
     }
 }

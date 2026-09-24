@@ -295,3 +295,109 @@ extension Array where Element == CycleTimePoint {
         return variance.squareRoot()
     }
 }
+
+// MARK: - Sprint reporting
+
+extension AnalyticsRepository {
+
+    /// A sprint's burndown: what was left to do at the end of each day, against
+    /// the straight line it would have followed if work had gone evenly.
+    ///
+    /// Measured against the sprint's *commitment*, recorded on the day it
+    /// started, not against its contents now. A burndown drawn against today's
+    /// contents would move its own starting line every time work was added,
+    /// which hides scope creep — the single thing the chart is best at showing.
+    /// Work added later still appears, as a line that fails to reach zero.
+    public func burndown(sprint: Sprint, points: Bool = true) throws -> [BurndownPoint] {
+        guard let startsAt = sprint.startsAt, let endsAt = sprint.endsAt else { return [] }
+
+        let sprints = SprintRepository(database: database, clock: clock)
+        let committed = try sprints.commitment(ofSprint: sprint.id)
+        let current = try sprints.tasks(inSprint: sprint.id)
+
+        // Everything the sprint has ever held: what it committed to, plus
+        // whatever has been added since.
+        var weights: [String: Double] = [:]
+        for entry in committed {
+            weights[entry.taskID] = points ? (entry.estimate ?? 0) : 1
+        }
+        for task in current where weights[task.id] == nil {
+            weights[task.id] = points ? (task.estimate ?? 0) : 1
+        }
+
+        let committedTotal = committed.reduce(0.0) { $0 + (points ? ($1.estimate ?? 0) : 1) }
+
+        // When each card was finished, so the replay knows what had gone by
+        // the end of each day.
+        var finished: [String: Date] = [:]
+        try database.forEachRow(
+            "SELECT id, completed_at FROM task WHERE sprint_id = ? AND completed_at IS NOT NULL;",
+            [sprint.id]
+        ) { row in
+            finished[try row.requiredString("id")] = row.date("completed_at")
+        }
+
+        // When each card joined, for scope added after the start. `created_at`
+        // is the best available answer: the schema records when a card was
+        // made, not when it was put in a sprint.
+        var joined: [String: Date] = [:]
+        for task in current { joined[task.id] = task.createdAt }
+
+        let today = calendar.startOfDay(for: clock.now)
+        let first = calendar.startOfDay(for: startsAt)
+        let last = calendar.startOfDay(for: endsAt)
+        let length = max(1, calendar.dateComponents([.day], from: first, to: last).day ?? 1)
+
+        var result: [BurndownPoint] = []
+        var day = first
+        var index = 0
+
+        while day <= last {
+            let endOfDay = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+
+            var scope = 0.0
+            var done = 0.0
+            for (taskID, weight) in weights {
+                let arrived = joined[taskID].map { $0 < endOfDay } ?? true
+                let wasCommitted = weights[taskID] != nil && committed.contains { $0.taskID == taskID }
+                guard wasCommitted || arrived else { continue }
+
+                scope += weight
+                if let at = finished[taskID], at < endOfDay { done += weight }
+            }
+
+            result.append(BurndownPoint(
+                day: day,
+                remaining: max(0, scope - done),
+                ideal: committedTotal * (1 - Double(index) / Double(length)),
+                // Days that have not happened yet get no measured line, only
+                // the ideal one — otherwise the chart would show the sprint
+                // flat-lining into the future as though it had stalled.
+                isProjected: day > today
+            ))
+
+            day = endOfDay
+            index += 1
+        }
+
+        return result
+    }
+}
+
+/// One day of a sprint burndown.
+public struct BurndownPoint: Sendable, Equatable, Identifiable {
+    public let day: Date
+    public let remaining: Double
+    public let ideal: Double
+    /// True for days still in the future, which have an ideal but no actual.
+    public let isProjected: Bool
+
+    public var id: Date { day }
+
+    public init(day: Date, remaining: Double, ideal: Double, isProjected: Bool) {
+        self.day = day
+        self.remaining = remaining
+        self.ideal = ideal
+        self.isProjected = isProjected
+    }
+}

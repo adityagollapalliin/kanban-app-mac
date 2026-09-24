@@ -19,6 +19,13 @@ public indirect enum TaskFilter: Sendable, Equatable {
     case not(TaskFilter)
     case comparison(QueryField, QueryComparison, QueryValue)
     case flag(QueryFlag)
+    /// A field the project invented: `cf:Size >= 3`.
+    ///
+    /// The field is named rather than enumerated, because the set of them is
+    /// data. The value stays as text until the compiler can look up what kind
+    /// of field it is — only then is it known whether `3` means a number, a
+    /// choice spelled "3", or a mistake.
+    case customField(String, QueryComparison, QueryValue)
     /// Free text, matched against the full-text index.
     case text(String)
 }
@@ -44,7 +51,7 @@ public enum QueryField: String, Sendable, CaseIterable {
     case priority, type, status, title, assignee, label
     /// The printed tag: `key = WORK-14`, or just `key = 14` within a project.
     case key
-    case version, epic
+    case version, epic, sprint
     /// The estimate, under the name teams actually say out loud.
     case points
     /// How long the card has sat in its current column: `days >= 5`.
@@ -100,6 +107,16 @@ public enum QueryFlag: String, Sendable, CaseIterable {
 public enum RelativeDate: Sendable, Equatable {
     case absolute(year: Int, month: Int, day: Int)
     case daysFromToday(Int)
+
+    /// Reads the spellings the query language accepts: `2026-10-01`, `today`,
+    /// `tomorrow`, `yesterday`, `+7d`, `-2w`.
+    ///
+    /// Public because a date can turn up somewhere the parser never saw — a
+    /// custom field's value, for instance, whose kind is only known once the
+    /// store has looked it up.
+    public static func parse(_ text: String) -> RelativeDate? {
+        TaskQueryParser.Parser.relativeDate(text)
+    }
 
     /// The start of the day in question, in the user's calendar.
     public func resolve(now: Date, calendar: Calendar = .current) -> Date {
@@ -321,6 +338,36 @@ public enum TaskQueryParser {
         mutating func parseWord(_ word: String) throws -> TaskFilter {
             let lowered = word.lowercased()
 
+            // `cf:Size >= 3`, or `cf:"Team name" = Platform` when it has a
+            // space in it.
+            if lowered == "cf", case .colon = peek() {
+                _ = advance()
+                guard let nameToken = advance(), case let name = nameToken.text, !name.isEmpty else {
+                    throw QueryError("`cf:` needs a field name, like `cf:Size >= 3`.")
+                }
+
+                let comparison: QueryComparison
+                switch peek() {
+                case .comparison(let parsed):
+                    _ = advance()
+                    comparison = parsed
+                case .colon:
+                    _ = advance()
+                    comparison = .equals
+                default:
+                    throw QueryError("`cf:\(name)` needs something to compare against, like `>= 3`.")
+                }
+
+                guard let valueToken = advance() else {
+                    throw QueryError("`cf:\(name)` is missing the value to compare against.")
+                }
+                let raw = valueToken.text
+                let value: QueryValue = (raw.lowercased() == "none" || raw.lowercased() == "null")
+                    ? .none
+                    : .text(raw)
+                return .customField(name, comparison, value)
+            }
+
             if lowered == "is", case .colon = peek() {
                 _ = advance()
                 guard case .word(let name)? = advance() else {
@@ -381,7 +428,7 @@ public enum TaskQueryParser {
                 }
                 return .number(amount)
 
-            case .status, .title, .assignee, .label, .key, .version, .epic, .flag:
+            case .status, .title, .assignee, .label, .key, .version, .epic, .flag, .sprint:
                 return .text(raw)
 
             default:

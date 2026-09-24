@@ -79,6 +79,7 @@ public struct TaskRepository {
     ) throws -> [BoardTask] {
         let filter = try TaskQueryParser.parse(source)
         let compiler = TaskQueryCompiler(
+            database: database,
             projectID: projectID,
             now: clock.now,
             currentPersonID: try AppSettings(database: database).currentPersonID
@@ -167,6 +168,10 @@ public struct TaskRepository {
             // move would look like the card's whole life, and every chart
             // drawn from the history would start a step late.
             try recordStatusChange(taskID: id, from: nil, to: statusID, at: now)
+
+            let created = try task(id: id)
+            try AutomationRepository(database: database, clock: clock)
+                .run(trigger: .created, task: created, statusID: statusID, depth: 0)
             return try task(id: id)
         }
     }
@@ -218,8 +223,39 @@ public struct TaskRepository {
         after: String? = nil,
         before: String? = nil
     ) throws -> BoardTask {
+        try move(taskID, toStatus: statusID, after: after, before: before, automationDepth: 0)
+    }
+
+    /// The real move. `automationDepth` is how many rules deep this already
+    /// is, so a rule that moves a card cannot set off an endless cascade.
+    @discardableResult
+    func move(
+        _ taskID: String,
+        toStatus statusID: String,
+        after: String? = nil,
+        before: String? = nil,
+        automationDepth: Int
+    ) throws -> BoardTask {
         try database.transaction {
             let moving = try task(id: taskID)
+
+            // The one rule in the app that refuses rather than reports. A WIP
+            // limit is an agreement between people and the board is not party
+            // to it; an allowed-transition list exists precisely so that some
+            // moves are impossible, and a rule that only tutted would not be
+            // that.
+            if moving.statusID != statusID {
+                let workflow = WorkflowRepository(database: database, clock: clock)
+                guard try workflow.permits(
+                    from: moving.statusID, to: statusID, inProject: moving.projectID
+                ) else {
+                    throw LocalBoardError.invalidInput(
+                        field: "status",
+                        detail: "\(try name(ofStatus: moving.statusID)) does not lead to "
+                              + "\(try name(ofStatus: statusID)) in this project."
+                    )
+                }
+            }
 
             var lower = try after.map { try position(of: $0) }
             var upper = try before.map { try position(of: $0) }
@@ -259,9 +295,33 @@ public struct TaskRepository {
 
             if changedColumn {
                 try recordStatusChange(taskID: taskID, from: moving.statusID, to: statusID, at: now)
+
+                let moved = try task(id: taskID)
+                let automations = AutomationRepository(database: database, clock: clock)
+
+                // Rules run inside the same transaction as the move, so a card
+                // never briefly exists in the state a rule was meant to stop.
+                try automations.run(
+                    trigger: .statusChanged, task: moved, statusID: statusID, depth: automationDepth
+                )
+
+                // Finishing a subtask may have finished its parent's list.
+                if let parentID = moved.parentID, try automations.allSubtasksDone(of: parentID) {
+                    try automations.run(
+                        trigger: .allSubtasksDone,
+                        task: try task(id: parentID),
+                        statusID: nil,
+                        depth: automationDepth
+                    )
+                }
             }
             return try task(id: taskID)
         }
+    }
+
+    private func name(ofStatus statusID: String) throws -> String {
+        try database.queryOne("SELECT name FROM status WHERE id = ?;", [statusID])?
+            .string("name") ?? "That column"
     }
 
     private func position(of taskID: String) throws -> Double {

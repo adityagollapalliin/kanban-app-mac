@@ -15,6 +15,9 @@ struct TaskQueryCompiler {
         let parameters: [SQLValue]
     }
 
+    /// Needed only to look up what kind of thing a project's own fields hold.
+    /// Everything else here is pure.
+    let database: Database
     let projectID: String
     let now: Date
     let calendar: Calendar
@@ -24,11 +27,13 @@ struct TaskQueryCompiler {
     let currentPersonID: String?
 
     init(
+        database: Database,
         projectID: String,
         now: Date,
         calendar: Calendar = .current,
         currentPersonID: String? = nil
     ) {
+        self.database = database
         self.projectID = projectID
         self.now = now
         self.calendar = calendar
@@ -71,7 +76,103 @@ struct TaskQueryCompiler {
 
         case .comparison(let field, let comparison, let value):
             return try fragment(field: field, comparison: comparison, value: value, into: &parameters)
+
+        case .customField(let name, let comparison, let value):
+            return try customFragment(name: name, comparison: comparison, value: value, into: &parameters)
         }
+    }
+
+    /// `cf:Size >= 3`.
+    ///
+    /// The field's declared kind decides which column is compared and how the
+    /// typed text is read — which is the whole reason values are stored in
+    /// typed columns. A number field compared as text would put 10 before 9.
+    private func customFragment(
+        name: String,
+        comparison: QueryComparison,
+        value: QueryValue,
+        into parameters: inout [SQLValue]
+    ) throws -> String {
+        guard let kind = try customFieldKinds()[name.lowercased()] else {
+            throw QueryError("there is no field called `\(name)` in this project.")
+        }
+
+        let membership = """
+            task.id IN (
+                SELECT custom_field_value.task_id FROM custom_field_value
+                JOIN custom_field ON custom_field.id = custom_field_value.field_id
+                WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE
+            """
+
+        // `cf:Size = none` asks whether it has been filled in at all, which is
+        // a question about the row's existence rather than about its contents.
+        if case .none = value {
+            parameters.append(.text(projectID))
+            parameters.append(.text(name))
+            let exists = membership + ")"
+            return comparison == .equals ? "NOT (\(exists))" : exists
+        }
+
+        guard case .text(let raw) = value else {
+            throw QueryError("`cf:\(name)` needs something to compare against.")
+        }
+
+        let column: String
+        let bound: SQLValue
+
+        switch kind {
+        case .text, .choice:
+            column = "text_value"
+            // Text matches loosely and a choice matches exactly: half a word
+            // is a reasonable way to search prose and a poor way to pick from
+            // a list.
+            if kind == .text {
+                parameters.append(.text(projectID))
+                parameters.append(.text(name))
+                parameters.append(.text("%" + Self.escapingLikeWildcards(raw) + "%"))
+                let clause = membership + " AND custom_field_value.text_value LIKE ? ESCAPE '\\')"
+                return comparison == .notEquals ? "NOT (\(clause))" : clause
+            }
+            bound = .text(raw)
+
+        case .number:
+            guard let amount = Double(raw) else {
+                throw QueryError("`\(name)` holds numbers, and `\(raw)` is not one.")
+            }
+            column = "number_value"
+            bound = .real(amount)
+
+        case .date:
+            guard let date = RelativeDate.parse(raw) else {
+                throw QueryError("`\(name)` holds dates. Try 2026-10-01, today or +7d.")
+            }
+            column = "date_value"
+            bound = .real(date.resolve(now: now, calendar: calendar).timeIntervalSince1970)
+
+        case .checkbox:
+            let ticked = ["yes", "true", "1", "on"].contains(raw.lowercased())
+            column = "bool_value"
+            bound = .integer(ticked ? 1 : 0)
+        }
+
+        parameters.append(.text(projectID))
+        parameters.append(.text(name))
+        parameters.append(bound)
+
+        let clause = membership + " AND custom_field_value.\(column) \(Self.sqlOperator(comparison)) ?)"
+        return clause
+    }
+
+    /// The project's field names and kinds, lowercased for lookup.
+    private func customFieldKinds() throws -> [String: CustomFieldKind] {
+        var kinds: [String: CustomFieldKind] = [:]
+        try database.forEachRow(
+            "SELECT name, kind FROM custom_field WHERE project_id = ?;", [projectID]
+        ) { row in
+            kinds[try row.requiredString("name").lowercased()] =
+                try row.requiredEnum("kind", CustomFieldKind.self)
+        }
+        return kinds
     }
 
     private func fragment(for flag: QueryFlag, into parameters: inout [SQLValue]) -> String {
@@ -248,6 +349,27 @@ struct TaskQueryCompiler {
             }
             return epicFragment(text, comparison: comparison, into: &parameters)
 
+        case .sprint:
+            guard case .text(let name) = value else {
+                throw QueryError("`sprint` takes a sprint's name, or `active`.")
+            }
+            // `sprint = active` is the one people actually want to type, and
+            // it survives the sprint being renamed or replaced.
+            if name.lowercased() == "active" {
+                parameters.append(.text(projectID))
+                parameters.append(.integer(Int64(SprintState.active.rawValue)))
+                let subquery = "SELECT id FROM sprint WHERE project_id = ? AND state = ?"
+                return comparison == .notEquals
+                    ? "task.sprint_id NOT IN (\(subquery))"
+                    : "task.sprint_id IN (\(subquery))"
+            }
+            parameters.append(.text(projectID))
+            parameters.append(.text(name))
+            let subquery = "SELECT id FROM sprint WHERE project_id = ? AND name = ? COLLATE NOCASE"
+            return comparison == .notEquals
+                ? "task.sprint_id NOT IN (\(subquery))"
+                : "task.sprint_id IN (\(subquery))"
+
         case .flag:
             guard case .text(let text) = value else {
                 throw QueryError("`flag` takes the words written on the flag.")
@@ -325,6 +447,7 @@ struct TaskQueryCompiler {
         case .points: "estimate"
         case .days: "status_changed_at"
         case .flag: "flag_reason"
+        case .sprint: "sprint_id"
         }
     }
 

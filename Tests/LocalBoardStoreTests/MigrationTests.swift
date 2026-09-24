@@ -141,6 +141,36 @@ struct MigrationTests {
         #expect(try database.count("SELECT COUNT(*) FROM status_change;") == 1)
     }
 
+    /// v5 adds a great deal and must change nothing. Every table it creates
+    /// is empty and every column it adds is off, so a board behaves exactly as
+    /// it did until somebody asks for something.
+    @Test("v4 upgrades to v5 and changes nothing about how the board behaves")
+    func upgradeToAgile() throws {
+        let database = try Database(location: .memory)
+        try database.migrate(using: Migration.all.filter { $0.version <= 4 })
+
+        // Written straight into the table rather than through the repository:
+        // the repository speaks the current schema, and half a ladder is not
+        // a state it is ever asked to work against outside this test.
+        let ids = try database.seedBoardProject()
+        let cardID = try database.insertTask(
+            project: ids.project, status: ids.toDo, number: 1, title: "Older than v5"
+        )
+
+        try database.migrate(using: Migration.all)
+        let tasks = TaskRepository(database: database)
+
+        #expect(try database.userVersion == Migration.latestVersion)
+        #expect(try database.count("SELECT COUNT(*) FROM custom_field;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM sprint;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM automation;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM workflow_transition;") == 0)
+
+        // Workflow enforcement is off, so the move that was legal before still is.
+        #expect(try tasks.task(id: cardID).sprintID == nil)
+        #expect(throws: Never.self) { try tasks.move(cardID, toStatus: ids.done) }
+    }
+
     /// Guards against an older build silently mangling a newer file.
     @Test("A newer database is refused, not opened")
     func refusesNewerSchema() throws {

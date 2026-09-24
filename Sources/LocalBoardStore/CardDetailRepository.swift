@@ -300,3 +300,58 @@ public struct CardDetailRepository {
         return (comments, attachments)
     }
 }
+
+// MARK: - The running timer
+
+extension CardDetailRepository {
+
+    /// The timer that is running, if one is.
+    public func runningTimer() throws -> RunningTimer? {
+        try database.queryOne("SELECT * FROM running_timer WHERE id = 1;").map(RunningTimer.init(row:))
+    }
+
+    /// Starts timing a card.
+    ///
+    /// One timer runs at a time. Starting a second stops the first and logs
+    /// what it measured, because the alternative — two timers running on two
+    /// cards — records time that was never spent twice over.
+    public func startTimer(onTask taskID: String, personID: String? = nil) throws {
+        try database.transaction {
+            if let running = try runningTimer() {
+                guard running.taskID != taskID else { return }
+                try stopTimer(discarding: false)
+            }
+            try database.execute(
+                """
+                INSERT INTO running_timer (id, task_id, person_id, started_at) VALUES (1, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET task_id = ?, person_id = ?, started_at = ?;
+                """,
+                [taskID, personID.sqlValue, clock.now, taskID, personID.sqlValue, clock.now]
+            )
+        }
+    }
+
+    /// Stops the timer and writes what it measured into the work log.
+    ///
+    /// A timer stopped inside a minute logs nothing rather than a zero-minute
+    /// entry: the work log refuses no time at all, and a row saying somebody
+    /// spent no time on something is noise.
+    @discardableResult
+    public func stopTimer(discarding: Bool = false) throws -> WorkLogEntry? {
+        guard let running = try runningTimer() else { return nil }
+
+        try database.execute("DELETE FROM running_timer WHERE id = 1;")
+        guard !discarding else { return nil }
+
+        let minutes = running.minutes(now: clock.now)
+        guard minutes > 0 else { return nil }
+
+        return try logWork(
+            onTask: running.taskID,
+            minutes: minutes,
+            note: "",
+            personID: running.personID,
+            workedOn: running.startedAt
+        )
+    }
+}

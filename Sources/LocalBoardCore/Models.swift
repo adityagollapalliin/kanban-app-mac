@@ -33,6 +33,10 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
     /// transaction so two concurrent adds cannot collide.
     public var nextTaskNumber: Int
     public var archived: Bool
+    /// Whether the project's allowed transitions are applied. Off by default,
+    /// and with no transitions defined a project allows everything — so
+    /// turning this on is the only thing that can ever refuse a move.
+    public var enforcesWorkflow: Bool
     public var sortOrder: Double
     public var createdAt: Date
 
@@ -44,6 +48,7 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
         descriptionMarkdown: String = "",
         nextTaskNumber: Int = 1,
         archived: Bool = false,
+        enforcesWorkflow: Bool = false,
         sortOrder: Double,
         createdAt: Date
     ) {
@@ -54,6 +59,7 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
         self.descriptionMarkdown = descriptionMarkdown
         self.nextTaskNumber = nextTaskNumber
         self.archived = archived
+        self.enforcesWorkflow = enforcesWorkflow
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
@@ -268,6 +274,7 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     /// what `status_change` records, so days-in-column costs no join.
     public var statusChangedAt: Date?
     public var versionID: String?
+    public var sprintID: String?
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
@@ -301,6 +308,7 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         flagReason: String = "",
         statusChangedAt: Date? = nil,
         versionID: String? = nil,
+        sprintID: String? = nil,
         createdAt: Date,
         updatedAt: Date,
         completedAt: Date? = nil
@@ -325,6 +333,7 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.flagReason = flagReason
         self.statusChangedAt = statusChangedAt
         self.versionID = versionID
+        self.sprintID = sprintID
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt
@@ -611,5 +620,328 @@ public struct WorkLogEntry: Sendable, Equatable, Identifiable, Codable {
         let remainder = minutes % 60
         if hours == 0 { return "\(remainder)m" }
         return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+}
+
+/// A field a project defines for itself.
+public struct CustomField: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var name: String
+    /// Fixed at creation: the kind decides which column the values live in,
+    /// and changing it later would strand every value already written.
+    public let kind: CustomFieldKind
+    /// The choices, for a `.choice` field. One per line.
+    public var options: [String]
+    public var sortOrder: Double
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        kind: CustomFieldKind,
+        options: [String] = [],
+        sortOrder: Double,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.name = name
+        self.kind = kind
+        self.options = options
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+
+    /// The stored form: one choice per line, blanks dropped.
+    public static func stored(_ options: [String]) -> String {
+        options.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    public static func options(from stored: String) -> [String] {
+        stored.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+}
+
+/// One card's answer for one custom field.
+///
+/// A single case rather than four optional properties, so "this field is not
+/// set" and "this field is set to nothing" cannot both be true at once.
+public enum CustomFieldValue: Sendable, Equatable, Hashable {
+    case text(String)
+    case number(Double)
+    case date(Date)
+    case choice(String)
+    case checkbox(Bool)
+
+    public var kind: CustomFieldKind {
+        switch self {
+        case .text: .text
+        case .number: .number
+        case .date: .date
+        case .choice: .choice
+        case .checkbox: .checkbox
+        }
+    }
+
+    /// How it reads on a card, where there is only room for a few words.
+    public func display(formatter: DateFormatter? = nil) -> String {
+        switch self {
+        case .text(let value), .choice(let value):
+            return value
+        case .number(let value):
+            return value == value.rounded() ? String(Int(value)) : String(value)
+        case .date(let value):
+            return value.formatted(date: .abbreviated, time: .omitted)
+        case .checkbox(let value):
+            return value ? "Yes" : "No"
+        }
+    }
+
+    /// Whether this is worth showing at all. An unticked checkbox and an empty
+    /// string are both "nothing to say".
+    public var isEmpty: Bool {
+        switch self {
+        case .text(let value), .choice(let value): value.trimmingCharacters(in: .whitespaces).isEmpty
+        case .checkbox(let value): !value
+        default: false
+        }
+    }
+}
+
+/// A fixed stretch of work with a start, an end and a commitment.
+public struct Sprint: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var name: String
+    public var goal: String
+    public var state: SprintState
+    public var startsAt: Date?
+    public var endsAt: Date?
+    public var completedAt: Date?
+    public var sortOrder: Double
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        goal: String = "",
+        state: SprintState = .planned,
+        startsAt: Date? = nil,
+        endsAt: Date? = nil,
+        completedAt: Date? = nil,
+        sortOrder: Double,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.name = name
+        self.goal = goal
+        self.state = state
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.completedAt = completedAt
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+
+    /// Whole days from start to end, at least one.
+    public func length(calendar: Calendar = .current) -> Int {
+        guard let startsAt, let endsAt else { return 0 }
+        let days = calendar.dateComponents(
+            [.day], from: calendar.startOfDay(for: startsAt), to: calendar.startOfDay(for: endsAt)
+        ).day ?? 0
+        return max(1, days)
+    }
+
+    /// Whether the sprint has run past the day it said it would end.
+    public func isOverrunning(now: Date) -> Bool {
+        guard state == .active, let endsAt else { return false }
+        return now > endsAt
+    }
+}
+
+/// One allowed move between two columns.
+public struct WorkflowTransition: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var fromStatusID: String
+    public var toStatusID: String
+
+    public init(id: String, projectID: String, fromStatusID: String, toStatusID: String) {
+        self.id = id
+        self.projectID = projectID
+        self.fromStatusID = fromStatusID
+        self.toStatusID = toStatusID
+    }
+}
+
+/// A rule the project applies to itself.
+public struct Automation: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var projectID: String
+    public var name: String
+    public var trigger: AutomationTrigger
+    /// Which column, for `.statusChanged`.
+    public var triggerStatusID: String?
+    public var action: AutomationAction
+    /// What the action needs: an id, or a priority's raw value.
+    public var actionValue: String
+    public var enabled: Bool
+    public var sortOrder: Double
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        trigger: AutomationTrigger,
+        triggerStatusID: String? = nil,
+        action: AutomationAction,
+        actionValue: String = "",
+        enabled: Bool = true,
+        sortOrder: Double,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.name = name
+        self.trigger = trigger
+        self.triggerStatusID = triggerStatusID
+        self.action = action
+        self.actionValue = actionValue
+        self.enabled = enabled
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+}
+
+/// A saved shape for a new card or a new project.
+public struct Template: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    /// `nil` for a project template, which belongs to no project.
+    public var projectID: String?
+    public var kind: TemplateKind
+    public var name: String
+    public var payload: String
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectID: String?,
+        kind: TemplateKind,
+        name: String,
+        payload: String,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.kind = kind
+        self.name = name
+        self.payload = payload
+        self.createdAt = createdAt
+    }
+}
+
+/// What a card template writes onto a new card.
+///
+/// Every field is optional: a template says what it has an opinion about and
+/// stays silent on the rest, so "Bug report" can set the type and a checklist
+/// without also deciding the assignee.
+public struct CardTemplatePayload: Sendable, Equatable, Codable {
+    public var titlePrefix: String?
+    public var type: TaskType?
+    public var priority: Priority?
+    public var descriptionMarkdown: String?
+    public var labelNames: [String]
+    public var checklist: [String]
+    public var estimate: Double?
+    public var dueInDays: Int?
+
+    public init(
+        titlePrefix: String? = nil,
+        type: TaskType? = nil,
+        priority: Priority? = nil,
+        descriptionMarkdown: String? = nil,
+        labelNames: [String] = [],
+        checklist: [String] = [],
+        estimate: Double? = nil,
+        dueInDays: Int? = nil
+    ) {
+        self.titlePrefix = titlePrefix
+        self.type = type
+        self.priority = priority
+        self.descriptionMarkdown = descriptionMarkdown
+        self.labelNames = labelNames
+        self.checklist = checklist
+        self.estimate = estimate
+        self.dueInDays = dueInDays
+    }
+}
+
+/// What a project template lays out.
+public struct ProjectTemplatePayload: Sendable, Equatable, Codable {
+    public struct Column: Sendable, Equatable, Codable {
+        public var name: String
+        public var category: StatusCategory
+        public var wipLimit: Int?
+
+        public init(name: String, category: StatusCategory, wipLimit: Int? = nil) {
+            self.name = name
+            self.category = category
+            self.wipLimit = wipLimit
+        }
+    }
+
+    public struct Label: Sendable, Equatable, Codable {
+        public var name: String
+        public var color: String
+
+        public init(name: String, color: String) {
+            self.name = name
+            self.color = color
+        }
+    }
+
+    public var columns: [Column]
+    public var labels: [Label]
+    public var starterCards: [String]
+
+    public init(columns: [Column], labels: [Label] = [], starterCards: [String] = []) {
+        self.columns = columns
+        self.labels = labels
+        self.starterCards = starterCards
+    }
+}
+
+/// A timer that is running right now.
+public struct RunningTimer: Sendable, Equatable {
+    public var taskID: String
+    public var personID: String?
+    public var startedAt: Date
+
+    public init(taskID: String, personID: String?, startedAt: Date) {
+        self.taskID = taskID
+        self.personID = personID
+        self.startedAt = startedAt
+    }
+
+    /// Whole minutes so far, rounded to the nearest.
+    public func minutes(now: Date) -> Int {
+        max(0, Int((now.timeIntervalSince(startedAt) / 60).rounded()))
+    }
+
+    public func elapsed(now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(startedAt)))
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
+        let seconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
     }
 }
