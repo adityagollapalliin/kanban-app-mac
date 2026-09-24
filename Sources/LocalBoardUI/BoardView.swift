@@ -71,6 +71,10 @@ struct BoardView: View {
                 failureBanner(failure)
             }
 
+            if let incomplete = model.queryFailure {
+                queryHint(incomplete)
+            }
+
             if let snapshot = model.snapshot {
                 board(snapshot)
             } else {
@@ -83,18 +87,46 @@ struct BoardView: View {
         }
         .navigationTitle(model.snapshot?.board.name ?? AppIdentity.displayName)
         .navigationSubtitle(subtitle)
+        .searchable(
+            text: $model.queryText,
+            placement: .toolbar,
+            prompt: "due < +7d   priority >= high   is:overdue"
+        )
     }
 
     private var subtitle: String {
-        guard let snapshot = model.snapshot else { return "" }
-        let count = snapshot.taskCount
-        return count == 1 ? "1 card" : "\(count) cards"
+        guard model.snapshot != nil else { return "" }
+        let total = model.totalTaskCount
+
+        guard model.isFiltering else {
+            return total == 1 ? "1 card" : "\(total) cards"
+        }
+        return "\(model.visibleTaskCount) of \(total) cards"
+    }
+
+    /// A query still being typed is not an error to apologise for. It is said
+    /// quietly, and the last good result stays on screen underneath.
+    private func queryHint(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4))
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private func board(_ snapshot: BoardSnapshot) -> some View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 12) {
-                ForEach(snapshot.columns) { column in
+                ForEach(model.visibleColumns) { column in
                     BoardColumnView(column: column, model: model)
                 }
             }

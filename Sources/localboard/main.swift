@@ -66,7 +66,21 @@ func printUsage() {
           --priority lowest..highest     Card priority for `add`
           --due YYYY-MM-DD               Due date for `add`
           --notes "<text>"               Notes for `add`
+          --query "<filter>"             Filter `list` with the search language
           --all                          Include trashed cards in list and export
+
+        QUERY LANGUAGE
+          localboard list --query "due < +7d priority >= high"
+          localboard list --query "is:overdue not type:epic"
+          localboard list --query "status = \"In Progress\" or is:done"
+
+          Fields    due start created updated completed priority type status
+                    title assignee
+          Flags     is:done is:open is:overdue is:trashed is:assigned
+                    is:unassigned
+          Dates     2026-10-01, today, tomorrow, yesterday, +7d, -2w
+          Joining   terms side by side mean all of them; `or`, `not` and
+                    parentheses do what they look like
 
         Everything runs on this Mac. localboard makes no network connections.
         """)

@@ -57,6 +57,31 @@ public struct TaskRepository {
         ).map(BoardTask.init(row:))
     }
 
+    /// Runs a filter-language query: `due < +7d priority >= high not is:done`.
+    ///
+    /// Trashed cards are excluded unless the query asks about them, so
+    /// `is:trashed` works without a separate switch and every other query
+    /// stays clean by default.
+    public func tasks(matching source: String, inProject projectID: String) throws -> [BoardTask] {
+        let filter = try TaskQueryParser.parse(source)
+        let compiler = TaskQueryCompiler(projectID: projectID, now: clock.now)
+        let compiled = try compiler.compile(filter)
+
+        let trashClause = TaskQueryCompiler.mentionsTrash(filter) ? "" : " AND task.trashed = 0"
+
+        return try database.query(
+            """
+            SELECT task.* FROM task
+            WHERE task.project_id = ? AND \(compiled.whereClause)\(trashClause)
+            ORDER BY task.priority DESC,
+                     (task.due_date IS NULL),
+                     task.due_date,
+                     task.updated_at DESC;
+            """,
+            [SQLValue.text(projectID)] + compiled.parameters
+        ).map(BoardTask.init(row:))
+    }
+
     /// Turns what the user typed into an FTS5 expression.
     ///
     /// Each word becomes a quoted prefix term, so `"` and the operators FTS5

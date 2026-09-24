@@ -232,6 +232,74 @@ struct BoardViewModelTests {
         #expect(column(model, 1).tasks.map(\.title) == ["Already there", "Arriving"])
     }
 
+    // MARK: - Filtering
+
+    @Test("A query hides the cards it does not match, column by column")
+    func filtering() throws {
+        let model = try loadedModel()
+        let toDo = column(model, 0).status.id
+        model.addTask(title: "A bug", toStatus: toDo)
+        model.addTask(title: "A story", toStatus: toDo)
+
+        let bug = try #require(column(model, 0).tasks.first { $0.title == "A bug" })
+        model.setType(.bug, for: bug.id)
+
+        model.queryText = "type:bug"
+
+        #expect(model.isFiltering)
+        #expect(model.visibleColumns[0].tasks.map(\.title) == ["A bug"])
+        #expect(model.visibleTaskCount == 1)
+        #expect(model.totalTaskCount == 2)
+    }
+
+    @Test("Clearing the field shows everything again")
+    func clearingQuery() throws {
+        let model = try loadedModel()
+        model.addTask(title: "Anything", toStatus: column(model, 0).status.id)
+
+        model.queryText = "type:bug"
+        #expect(model.visibleTaskCount == 0)
+
+        model.queryText = ""
+        #expect(model.isFiltering == false)
+        #expect(model.visibleTaskCount == 1)
+    }
+
+    /// Half a query is a normal state of a field being typed into. It must not
+    /// blank the board, and it must not raise the same alarm as a failed edit.
+    @Test("An unfinished query is reported quietly and keeps the last result")
+    func incompleteQuery() throws {
+        let model = try loadedModel()
+        let toDo = column(model, 0).status.id
+        model.addTask(title: "A bug", toStatus: toDo)
+        let bug = try #require(column(model, 0).tasks.first)
+        model.setType(.bug, for: bug.id)
+
+        model.queryText = "type:bug"
+        #expect(model.visibleTaskCount == 1)
+
+        model.queryText = "type:bug due <"
+
+        #expect(model.queryFailure != nil)
+        #expect(model.failure == nil, "a half-typed query is not a failed action")
+        #expect(model.visibleTaskCount == 1, "the last good result stays on screen")
+    }
+
+    @Test("A filter survives a reload")
+    func filterSurvivesReload() throws {
+        let model = try loadedModel()
+        let toDo = column(model, 0).status.id
+        model.addTask(title: "Keep me", toStatus: toDo)
+        model.addTask(title: "Hide me", toStatus: toDo)
+
+        model.queryText = "title:keep"
+        #expect(model.visibleTaskCount == 1)
+
+        model.load()
+        #expect(model.visibleTaskCount == 1)
+        #expect(model.visibleColumns[0].tasks.map(\.title) == ["Keep me"])
+    }
+
     // MARK: - Editing
 
     @Test("Edits from the inspector reach the board")

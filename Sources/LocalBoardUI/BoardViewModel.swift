@@ -30,6 +30,45 @@ public final class BoardViewModel {
         }
     }
 
+    /// What is typed in the search field. Empty means no filter at all,
+    /// which is not the same as a filter that matches everything — an empty
+    /// board and an unfiltered board should not look alike.
+    public var queryText: String = "" {
+        didSet {
+            guard queryText != oldValue else { return }
+            applyQuery()
+        }
+    }
+
+    /// A query that does not parse yet. Held apart from `failure`: half a
+    /// query is a normal state of a search field being typed into, not a
+    /// failed action, and it must not raise the same alarm.
+    public private(set) var queryFailure: String?
+
+    /// `nil` when nothing is being filtered.
+    private var matchingTaskIDs: Set<String>?
+
+    /// The columns to draw: every card, or only those the query matched.
+    public var visibleColumns: [LoadedColumn] {
+        guard let snapshot else { return [] }
+        guard let matchingTaskIDs else { return snapshot.columns }
+
+        return snapshot.columns.map { column in
+            LoadedColumn(
+                column: column.column,
+                status: column.status,
+                tasks: column.tasks.filter { matchingTaskIDs.contains($0.id) }
+            )
+        }
+    }
+
+    public var isFiltering: Bool { matchingTaskIDs != nil }
+
+    /// How many cards the query hid, for the "showing 3 of 12" line.
+    public var totalTaskCount: Int { snapshot?.taskCount ?? 0 }
+
+    public var visibleTaskCount: Int { visibleColumns.reduce(0) { $0 + $1.tasks.count } }
+
     /// The card open in the inspector. Cleared when the card leaves the board,
     /// so closing is never something the user has to do after a trash.
     public var selectedTaskID: String?
@@ -84,6 +123,33 @@ public final class BoardViewModel {
             return
         }
         perform { snapshot = try boardRepository.snapshot(boardID: selectedBoardID) }
+        applyQuery()
+    }
+
+    /// Runs the current query against the store and remembers which cards it
+    /// matched. Called on every edit to the field and after every reload.
+    private func applyQuery() {
+        let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmed.isEmpty else {
+            matchingTaskIDs = nil
+            queryFailure = nil
+            return
+        }
+
+        guard let projectID = snapshot?.board.projectID else { return }
+
+        do {
+            let matches = try taskRepository.tasks(matching: trimmed, inProject: projectID)
+            matchingTaskIDs = Set(matches.map(\.id))
+            queryFailure = nil
+        } catch let error as QueryError {
+            // Keep showing the last good result while the query is being
+            // finished, rather than blanking the board on every keystroke.
+            queryFailure = error.message
+        } catch {
+            queryFailure = error.localizedDescription
+        }
     }
 
     public func project(for board: Board) -> Project? {

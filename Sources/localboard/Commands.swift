@@ -58,36 +58,49 @@ func listCommand(_ arguments: Arguments, database: Database) -> Int32 {
         let tasks = TaskRepository(database: database)
 
         let statuses = try selection.statuses(in: project)
-        let wanted: [Status]
-        if let name = arguments.option("status") {
-            wanted = [try selection.status(named: name, in: project)]
-        } else {
-            wanted = statuses
+        let columnName = Dictionary(uniqueKeysWithValues: statuses.map { ($0.id, $0.name) })
+        let includeTrashed = arguments.flag("all")
+
+        func row(_ task: BoardTask) -> [String] {
+            [
+                task.tag(in: project),
+                columnName[task.statusID] ?? "",
+                task.type.shortLabel,
+                task.priority.shortLabel,
+                task.dueDate.map(Parse.day) ?? "",
+                task.trashed ? "\(task.title)  (trashed)" : task.title,
+            ]
         }
 
-        let includeTrashed = arguments.flag("all")
         var rows: [[String]] = []
 
-        for status in wanted {
-            let column = try tasks.tasks(
-                inProject: project.id,
-                statusID: status.id,
-                includeTrashed: includeTrashed
-            )
-            for task in column {
-                rows.append([
-                    task.tag(in: project),
-                    status.name,
-                    task.type.shortLabel,
-                    task.priority.shortLabel,
-                    task.dueDate.map(Parse.day) ?? "",
-                    task.trashed ? "\(task.title)  (trashed)" : task.title,
-                ])
+        if let query = arguments.option("query") {
+            // The same language the app's search field speaks.
+            rows = try tasks.tasks(matching: query, inProject: project.id).map(row)
+        } else {
+            let wanted: [Status]
+            if let name = arguments.option("status") {
+                wanted = [try selection.status(named: name, in: project)]
+            } else {
+                wanted = statuses
+            }
+
+            for status in wanted {
+                let column = try tasks.tasks(
+                    inProject: project.id,
+                    statusID: status.id,
+                    includeTrashed: includeTrashed
+                )
+                rows.append(contentsOf: column.map(row))
             }
         }
 
         guard !rows.isEmpty else {
-            Output.line("No cards yet. Add one with `localboard add \"Write the thing\"`.")
+            if arguments.option("query") != nil {
+                Output.line("Nothing matches that query.")
+            } else {
+                Output.line("No cards yet. Add one with `localboard add \"Write the thing\"`.")
+            }
             return ExitStatus.success
         }
 
