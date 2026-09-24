@@ -132,9 +132,15 @@ struct BoardView: View {
         )
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Save View", systemImage: "bookmark") {
+                Button {
                     newViewName = ""
                     isNamingView = true
+                } label: {
+                    // Spelled out, not just the icon: a toolbar bookmark glyph
+                    // on its own is a rebus, and this is not an action anyone
+                    // can guess from a symbol.
+                    Label("Save View", systemImage: "bookmark")
+                        .labelStyle(.titleAndIcon)
                 }
                 .disabled(!model.canSaveCurrentQuery)
                 .help(model.canSaveCurrentQuery
