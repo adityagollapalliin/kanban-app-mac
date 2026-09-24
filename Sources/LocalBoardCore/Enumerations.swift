@@ -155,3 +155,49 @@ public enum CardField: String, Sendable, CaseIterable, Codable {
         fields.prefix(maximumPerBoard).map(\.rawValue).joined(separator: ",")
     }
 }
+
+/// How one card relates to another.
+///
+/// Each kind has an inverse, and only one direction is ever stored: the link
+/// is written as it was made, and the other card derives what it means from
+/// the other end. Storing both would be two rows that can disagree.
+public enum LinkKind: Int, Sendable, CaseIterable, Codable {
+    case blocks = 0
+    case blockedBy = 1
+    case relatesTo = 2
+    case duplicates = 3
+    case duplicatedBy = 4
+
+    public var inverse: LinkKind {
+        switch self {
+        case .blocks: .blockedBy
+        case .blockedBy: .blocks
+        case .relatesTo: .relatesTo
+        case .duplicates: .duplicatedBy
+        case .duplicatedBy: .duplicates
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .blocks: "Blocks"
+        case .blockedBy: "Blocked by"
+        case .relatesTo: "Relates to"
+        case .duplicates: "Duplicates"
+        case .duplicatedBy: "Duplicated by"
+        }
+    }
+
+    /// The kinds worth offering when making a link. The two inverse-only
+    /// spellings are what the *other* card sees, not something you pick.
+    public static var offered: [LinkKind] { [.blocks, .blockedBy, .relatesTo, .duplicates] }
+
+    public var symbol: String {
+        switch self {
+        case .blocks: "hand.raised.fill"
+        case .blockedBy: "hand.raised"
+        case .relatesTo: "link"
+        case .duplicates, .duplicatedBy: "doc.on.doc"
+        }
+    }
+}

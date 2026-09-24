@@ -115,6 +115,32 @@ struct MigrationTests {
         #expect(try database.count("SELECT COUNT(*) FROM quick_filter WHERE board_id = 'board-1';") == 4)
     }
 
+    @Test("v3 upgrades to v4 and the cards keep everything they had")
+    func upgradeToCardDetail() throws {
+        let database = try Database(location: .memory)
+        try database.migrate(using: Migration.all.filter { $0.version <= 2 })
+
+        // The card has to predate v3 for v3's backfill to have anything to do,
+        // which is the thing this test then checks v4 did not disturb.
+        let ids = try database.seedMinimalProject()
+        try database.insertTask(project: ids.project, status: ids.status, number: 1, title: "Older than v4")
+
+        try database.migrate(using: Migration.all.filter { $0.version <= 3 })
+        #expect(try database.count("SELECT COUNT(*) FROM status_change;") == 1)
+
+        try database.migrate(using: Migration.all)
+
+        #expect(try database.userVersion == Migration.latestVersion)
+        #expect(try database.count("SELECT COUNT(*) FROM task;") == 1)
+        #expect(try database.count("SELECT COUNT(*) FROM comment;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM attachment;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM task_link;") == 0)
+        #expect(try database.count("SELECT COUNT(*) FROM work_log;") == 0)
+
+        // The v3 backfill is still intact after v4 ran over the top of it.
+        #expect(try database.count("SELECT COUNT(*) FROM status_change;") == 1)
+    }
+
     /// Guards against an older build silently mangling a newer file.
     @Test("A newer database is refused, not opened")
     func refusesNewerSchema() throws {

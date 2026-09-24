@@ -203,6 +203,21 @@ struct TaskCardView: View {
                         .help("A subtask")
                 }
 
+                // Not among the board's chosen rows: a conversation or a file
+                // on a card is something you need to know is there before you
+                // decide whether to open it, whatever else the board is showing.
+                if model.commentCount(for: task) > 0 {
+                    Label("\(model.commentCount(for: task))", systemImage: "text.bubble")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if model.attachmentCount(for: task) > 0 {
+                    Label("\(model.attachmentCount(for: task))", systemImage: "paperclip")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer(minLength: 0)
 
                 if fields.contains(.daysInColumn) {
@@ -303,6 +318,8 @@ struct TaskCardView: View {
     private var footerIsEmpty: Bool {
         if task.flagged, !task.flagReason.isEmpty { return false }
         if task.parentID != nil { return false }
+        if model.commentCount(for: task) > 0 { return false }
+        if model.attachmentCount(for: task) > 0 { return false }
         if let subtasks = model.subtaskProgress(for: task), subtasks.total > 0 { return false }
         if fields.contains(.daysInColumn) { return false }
         if fields.contains(.dueDate), task.dueDate != nil { return false }

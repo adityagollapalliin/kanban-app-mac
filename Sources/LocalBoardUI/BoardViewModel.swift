@@ -173,8 +173,26 @@ public final class BoardViewModel {
     let presentationRepository: BoardPresentationRepository
     let analyticsRepository: AnalyticsRepository
     let settings: AppSettings
+    let cardDetailRepository: CardDetailRepository
 
-    public init(database: Database, clock: any ClockProvider = SystemClock()) {
+    /// The open card's conversation, files, links and hours. Loaded with the
+    /// selection rather than for the whole board, because only one card is
+    /// ever open and four more queries per card would be four hundred on a
+    /// board of a hundred.
+    public private(set) var comments: [Comment] = []
+    public private(set) var attachments: [Attachment] = []
+    public private(set) var links: [(link: TaskLink, kind: LinkKind, otherID: String)] = []
+    public private(set) var workLog: [WorkLogEntry] = []
+
+    /// Badge counts for every card on the board, gathered in two queries.
+    public private(set) var commentCounts: [String: Int] = [:]
+    public private(set) var attachmentCounts: [String: Int] = [:]
+
+    public init(
+        database: Database,
+        clock: any ClockProvider = SystemClock(),
+        paths: ContainerPaths? = nil
+    ) {
         self.database = database
         self.boardRepository = BoardRepository(database: database, clock: clock)
         self.taskRepository = TaskRepository(database: database, clock: clock)
@@ -186,6 +204,9 @@ public final class BoardViewModel {
         self.presentationRepository = BoardPresentationRepository(database: database)
         self.analyticsRepository = AnalyticsRepository(database: database, clock: clock)
         self.settings = AppSettings(database: database)
+        self.cardDetailRepository = CardDetailRepository(
+            database: database, clock: clock, paths: paths
+        )
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -237,6 +258,10 @@ public final class BoardViewModel {
                 labels = try labelRepository.labels(inProject: projectID)
                 epics = try taskRepository.epics(inProject: projectID)
                 versions = try versionRepository.versions(inProject: projectID)
+
+                let counts = try cardDetailRepository.countsByTask(inProject: projectID)
+                commentCounts = counts.comments
+                attachmentCounts = counts.attachments
             }
             colorQueryMatches = try colorMatches()
             quickFilters = try presentationRepository.quickFilters(inBoard: selectedBoardID)
@@ -272,11 +297,19 @@ public final class BoardViewModel {
         guard let selectedTaskID else {
             checklist = []
             subtasks = []
+            comments = []
+            attachments = []
+            links = []
+            workLog = []
             return
         }
         perform {
             checklist = try checklistRepository.items(forTask: selectedTaskID)
             subtasks = try taskRepository.subtasks(of: selectedTaskID)
+            comments = try cardDetailRepository.comments(forTask: selectedTaskID)
+            attachments = try cardDetailRepository.attachments(forTask: selectedTaskID)
+            links = try cardDetailRepository.links(forTask: selectedTaskID)
+            workLog = try cardDetailRepository.workLog(forTask: selectedTaskID)
         }
     }
 
@@ -1283,5 +1316,126 @@ extension BoardViewModel {
 
         gitReferenceCache[tag] = found
         return found
+    }
+}
+
+// MARK: - What else a card carries
+
+extension BoardViewModel {
+
+    // MARK: Comments
+
+    /// Comments are attributed to whoever is chosen in Settings. Nobody
+    /// chosen means an unattributed remark, which is honest — the alternative
+    /// is inventing an author.
+    public func addComment(_ body: String, to taskID: String) {
+        perform {
+            try cardDetailRepository.addComment(toTask: taskID, body: body, authorID: currentPersonID)
+            loadSelectionDetails()
+            reloadCounts()
+        }
+    }
+
+    public func editComment(_ commentID: String, body: String) {
+        perform {
+            try cardDetailRepository.editComment(commentID, body: body)
+            loadSelectionDetails()
+        }
+    }
+
+    public func deleteComment(_ commentID: String) {
+        perform {
+            try cardDetailRepository.deleteComment(commentID)
+            loadSelectionDetails()
+            reloadCounts()
+        }
+    }
+
+    // MARK: Attachments
+
+    public func attachFile(to taskID: String) {
+        guard let source = RepositoryAccess.chooseFile() else { return }
+
+        // The panel hands back a URL the app may read for as long as it holds
+        // access; the copy has to happen inside that window.
+        let accessed = source.startAccessingSecurityScopedResource()
+        defer { if accessed { source.stopAccessingSecurityScopedResource() } }
+
+        perform {
+            try cardDetailRepository.attach(source, toTask: taskID)
+            loadSelectionDetails()
+            reloadCounts()
+        }
+    }
+
+    public func url(of attachment: Attachment) -> URL? {
+        cardDetailRepository.url(of: attachment)
+    }
+
+    public func removeAttachment(_ attachmentID: String) {
+        perform {
+            try cardDetailRepository.removeAttachment(attachmentID)
+            loadSelectionDetails()
+            reloadCounts()
+        }
+    }
+
+    // MARK: Links
+
+    public func link(_ taskID: String, _ kind: LinkKind, to otherID: String) {
+        perform {
+            try cardDetailRepository.link(taskID, kind, to: otherID)
+            loadSelectionDetails()
+        }
+    }
+
+    public func unlink(_ linkID: String) {
+        perform {
+            try cardDetailRepository.unlink(linkID)
+            loadSelectionDetails()
+        }
+    }
+
+    /// The card at the other end of a link, for showing its tag and title.
+    public func task(id: String) -> BoardTask? {
+        snapshot?.columns.lazy.flatMap(\.tasks).first { $0.id == id }
+            ?? snapshot?.backlog?.tasks.first { $0.id == id }
+    }
+
+    // MARK: Work log
+
+    public func logWork(minutes: Int, note: String, on day: Date, taskID: String) {
+        perform {
+            try cardDetailRepository.logWork(
+                onTask: taskID,
+                minutes: minutes,
+                note: note,
+                personID: currentPersonID,
+                workedOn: day
+            )
+            loadSelectionDetails()
+        }
+    }
+
+    public func deleteWorkLog(_ entryID: String) {
+        perform {
+            try cardDetailRepository.deleteWorkLog(entryID)
+            loadSelectionDetails()
+        }
+    }
+
+    public var loggedMinutes: Int { workLog.reduce(0) { $0 + $1.minutes } }
+
+    // MARK: Badges
+
+    public func commentCount(for task: BoardTask) -> Int { commentCounts[task.id] ?? 0 }
+
+    public func attachmentCount(for task: BoardTask) -> Int { attachmentCounts[task.id] ?? 0 }
+
+    private func reloadCounts() {
+        guard let projectID = snapshot?.board.projectID else { return }
+        guard let counts = try? cardDetailRepository.countsByTask(inProject: projectID) else { return }
+        commentCounts = counts.comments
+        attachmentCounts = counts.attachments
     }
 }

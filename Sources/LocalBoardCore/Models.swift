@@ -498,3 +498,118 @@ public struct RepositoryLink: Sendable, Equatable, Identifiable, Codable {
         self.linkedAt = linkedAt
     }
 }
+
+/// A remark on a card.
+public struct Comment: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var taskID: String
+    /// `nil` when nobody was chosen, or when the author has since been removed.
+    public var authorID: String?
+    public var bodyMarkdown: String
+    public var createdAt: Date
+    /// Set when a comment is changed, so an edited remark says it was edited
+    /// rather than quietly appearing always to have said this.
+    public var editedAt: Date?
+
+    public init(
+        id: String,
+        taskID: String,
+        authorID: String?,
+        bodyMarkdown: String,
+        createdAt: Date,
+        editedAt: Date? = nil
+    ) {
+        self.id = id
+        self.taskID = taskID
+        self.authorID = authorID
+        self.bodyMarkdown = bodyMarkdown
+        self.createdAt = createdAt
+        self.editedAt = editedAt
+    }
+}
+
+/// A file kept with a card.
+///
+/// The path is relative to the app's attachments folder, never absolute: the
+/// container's real path differs between machines and between the sandboxed
+/// app and the command-line tool, and only a relative path survives all three.
+public struct Attachment: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var taskID: String
+    public var filename: String
+    public var relativePath: String
+    public var byteSize: Int
+    public var addedAt: Date
+
+    public init(
+        id: String,
+        taskID: String,
+        filename: String,
+        relativePath: String,
+        byteSize: Int,
+        addedAt: Date
+    ) {
+        self.id = id
+        self.taskID = taskID
+        self.filename = filename
+        self.relativePath = relativePath
+        self.byteSize = byteSize
+        self.addedAt = addedAt
+    }
+}
+
+/// One card's relationship to another.
+public struct TaskLink: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var taskID: String
+    public var otherTaskID: String
+    public var kind: LinkKind
+    public var createdAt: Date
+
+    public init(id: String, taskID: String, otherTaskID: String, kind: LinkKind, createdAt: Date) {
+        self.id = id
+        self.taskID = taskID
+        self.otherTaskID = otherTaskID
+        self.kind = kind
+        self.createdAt = createdAt
+    }
+}
+
+/// Time spent on a card.
+public struct WorkLogEntry: Sendable, Equatable, Identifiable, Codable {
+    public let id: String
+    public var taskID: String
+    public var personID: String?
+    public var minutes: Int
+    public var note: String
+    /// The day the work happened, which is often not the day it was written
+    /// down — and only the first of those is any use in a report.
+    public var workedOn: Date
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskID: String,
+        personID: String?,
+        minutes: Int,
+        note: String = "",
+        workedOn: Date,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.taskID = taskID
+        self.personID = personID
+        self.minutes = minutes
+        self.note = note
+        self.workedOn = workedOn
+        self.createdAt = createdAt
+    }
+
+    /// `1h 30m`, and `45m` when there is no hour to speak of.
+    public var duration: String {
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if hours == 0 { return "\(remainder)m" }
+        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+}

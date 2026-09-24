@@ -52,7 +52,7 @@ public final class AppEnvironment {
 
             let opened = try Database.openBoardDatabase(paths: resolved)
             database = opened
-            board = BoardViewModel(database: opened)
+            board = BoardViewModel(database: opened, paths: resolved)
             lastSeenDataVersion = (try? opened.dataVersion) ?? 0
 
             diagnosticsDirectory.record("app.launch version=\(Migration.latestVersion)")

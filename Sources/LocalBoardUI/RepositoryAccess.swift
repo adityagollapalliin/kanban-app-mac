@@ -34,6 +34,20 @@ enum RepositoryAccess {
         return (url, bookmark)
     }
 
+    /// Asks the user for a file to attach. Any kind: what belongs with a card
+    /// is not something this can have an opinion about.
+    static func chooseFile() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Attach"
+        panel.message = "The file is copied into the app's own folder, so moving the original later is harmless."
+
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
     /// Runs `body` with the folder open, and closes it again afterwards.
     ///
     /// The stop is in a `defer` because a security-scoped resource left open

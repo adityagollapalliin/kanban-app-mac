@@ -44,6 +44,10 @@ struct TaskDetailView: View {
             checklistSection
             subtasksSection
             notesSection
+            LinksSection(task: task, model: model)
+            CommentsSection(task: task, model: model)
+            AttachmentsSection(task: task, model: model)
+            WorkLogSection(task: task, model: model)
             repositorySection
             historySection
             actionsSection

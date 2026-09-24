@@ -274,3 +274,55 @@ extension RepositoryLink {
         )
     }
 }
+
+extension Comment {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            authorID: row.string("author_id"),
+            bodyMarkdown: try row.requiredString("body_md"),
+            createdAt: try row.requiredDate("created_at"),
+            editedAt: row.date("edited_at")
+        )
+    }
+}
+
+extension Attachment {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            filename: try row.requiredString("filename"),
+            relativePath: try row.requiredString("relative_path"),
+            byteSize: try row.requiredInt("byte_size"),
+            addedAt: try row.requiredDate("added_at")
+        )
+    }
+}
+
+extension TaskLink {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            otherTaskID: try row.requiredString("other_task_id"),
+            kind: try row.requiredEnum("kind", LinkKind.self),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension WorkLogEntry {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            personID: row.string("person_id"),
+            minutes: try row.requiredInt("minutes"),
+            note: row.string("note") ?? "",
+            workedOn: try row.requiredDate("worked_on"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}

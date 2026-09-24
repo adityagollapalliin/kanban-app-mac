@@ -327,3 +327,42 @@ struct BoardPresentationTests {
                 == ["Added at the top", "First added"])
     }
 }
+
+@MainActor
+@Suite("Reading time the way people write it")
+struct WorkLogParsingTests {
+
+    /// A bare number is minutes. `30` far more often means half an hour than
+    /// thirty hours, and the ambiguous case is the one worth getting right.
+    @Test("A bare number is minutes")
+    func bareNumber() {
+        #expect(WorkLogSection.minutes(from: "30") == 30)
+        #expect(WorkLogSection.minutes(from: "90") == 90)
+    }
+
+    @Test("Hours and minutes together")
+    func compound() {
+        #expect(WorkLogSection.minutes(from: "1h 30m") == 90)
+        #expect(WorkLogSection.minutes(from: "1h30m") == 90)
+        #expect(WorkLogSection.minutes(from: "2h") == 120)
+        #expect(WorkLogSection.minutes(from: "45m") == 45)
+    }
+
+    @Test("A fractional hour is read as one")
+    func fractional() {
+        #expect(WorkLogSection.minutes(from: "1.5h") == 90)
+    }
+
+    @Test("A trailing number after an hour is minutes")
+    func trailingMinutes() {
+        #expect(WorkLogSection.minutes(from: "1h 30") == 90)
+    }
+
+    @Test("Nonsense and nothing both come back empty rather than as zero")
+    func rejected() {
+        #expect(WorkLogSection.minutes(from: "") == nil)
+        #expect(WorkLogSection.minutes(from: "ages") == nil)
+        #expect(WorkLogSection.minutes(from: "0") == nil)
+        #expect(WorkLogSection.minutes(from: "0m") == nil)
+    }
+}
