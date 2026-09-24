@@ -1,12 +1,12 @@
 import SwiftUI
 import LocalBoardCore
 
-/// Milestone 0 places a deliberate placeholder here: the shell, the error
-/// surface and the data path are real, the board is not yet. Milestone 1
-/// replaces the body with the workspace sidebar and the Kanban board.
+/// The window's contents: the board once the database is open, the reason why
+/// not if it never opened.
 public struct RootView: View {
 
     @Environment(AppEnvironment.self) private var environment
+    @State private var model: BoardViewModel?
 
     public init() {}
 
@@ -14,37 +14,32 @@ public struct RootView: View {
         Group {
             if let error = environment.startupError {
                 StartupErrorView(error: error)
+            } else if let model {
+                BoardView(model: model, externalChangeCount: environment.externalChangeCount)
             } else {
-                placeholder
+                opening
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        .task { connectToDatabase() }
+        // AppEnvironment.start() runs from the scene's own task, which may land
+        // after this view's. Watching for the database means the board appears
+        // whichever order the two finish in.
+        .onChange(of: environment.database == nil) { connectToDatabase() }
     }
 
-    private var placeholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: 42, weight: .light))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+    private func connectToDatabase() {
+        guard model == nil, let database = environment.database else { return }
+        model = BoardViewModel(database: database)
+    }
 
-            Text("\(AppIdentity.displayName) is ready")
-                .font(.title2)
-
-            Text("Your boards will appear here. Everything stays on this Mac.")
-                .foregroundStyle(.secondary)
-
-            if let paths = environment.paths {
-                Text(paths.dataDirectory.path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .textSelection(.enabled)
-                    .padding(.top, 4)
-                    .accessibilityLabel("Data folder location")
-            }
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// The gap between the window appearing and the file being open. Usually
+    /// too brief to read, which is why it says nothing that would need reading.
+    private var opening: some View {
+        ProgressView()
+            .controlSize(.small)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Opening your boards")
     }
 }
 
