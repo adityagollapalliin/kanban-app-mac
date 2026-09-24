@@ -45,6 +45,10 @@ public final class BoardViewModel {
     /// failed action, and it must not raise the same alarm.
     public private(set) var queryFailure: String?
 
+    /// Whether the board is currently reading trashed cards at all. Only true
+    /// while the query asks about them.
+    private var showsTrash = false
+
     /// `nil` when nothing is being filtered.
     private var matchingTaskIDs: Set<String>?
 
@@ -133,18 +137,24 @@ public final class BoardViewModel {
     }
 
     private func reloadSnapshot() {
+        loadSnapshot()
+        applyQuery()
+    }
+
+    /// Reads the board without touching the query, so that `applyQuery` can
+    /// ask for a reload without the two calling each other forever.
+    private func loadSnapshot() {
         guard let selectedBoardID else {
             snapshot = nil
             return
         }
         perform {
-            snapshot = try boardRepository.snapshot(boardID: selectedBoardID)
+            snapshot = try boardRepository.snapshot(boardID: selectedBoardID, includeTrashed: showsTrash)
             people = try personRepository.people()
             if let projectID = snapshot?.board.projectID {
                 savedViews = try savedViewRepository.views(inProject: projectID)
             }
         }
-        applyQuery()
     }
 
     /// Runs the current query against the store and remembers which cards it
@@ -155,12 +165,18 @@ public final class BoardViewModel {
         guard !trimmed.isEmpty else {
             matchingTaskIDs = nil
             queryFailure = nil
+            setShowsTrash(false)
             return
         }
 
         guard let projectID = snapshot?.board.projectID else { return }
 
         do {
+            // The board hides trashed cards, so a query about them has to
+            // change what was read, not just what is shown — otherwise
+            // `is:trashed` filters a set the trash was never in.
+            setShowsTrash(try TaskQueryParser.parse(trimmed).mentionsTrash)
+
             let matches = try taskRepository.tasks(matching: trimmed, inProject: projectID)
             matchingTaskIDs = Set(matches.map(\.id))
             queryFailure = nil
@@ -224,6 +240,18 @@ public final class BoardViewModel {
             if trashed, selectedTaskID == taskID { selectedTaskID = nil }
             reloadSnapshot()
         }
+    }
+
+    private func setShowsTrash(_ shows: Bool) {
+        guard shows != showsTrash else { return }
+        showsTrash = shows
+        loadSnapshot()
+    }
+
+    /// Takes a card back out of the trash. The counterpart to `setTrashed`,
+    /// without which trashing is a one-way door.
+    public func restore(_ taskID: String) {
+        setTrashed(false, for: taskID)
     }
 
     public func rename(_ taskID: String, to title: String) {

@@ -31,17 +31,6 @@ struct TaskQueryCompiler {
         return Compiled(whereClause: clause, parameters: parameters)
     }
 
-    /// Whether the filter speaks about the trash itself. If it does not, the
-    /// caller hides trashed cards; if it does, the user has asked and gets
-    /// exactly what they asked for.
-    static func mentionsTrash(_ filter: TaskFilter) -> Bool {
-        switch filter {
-        case .flag(.trashed): true
-        case .and(let branches), .or(let branches): branches.contains(where: mentionsTrash)
-        case .not(let inner): mentionsTrash(inner)
-        default: false
-        }
-    }
 
     // MARK: - Fragments
 

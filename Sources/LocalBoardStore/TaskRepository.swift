@@ -41,6 +41,16 @@ public struct TaskRepository {
         return try BoardTask(row: row)
     }
 
+    /// The card behind a printed tag: WORK-14 is number 14 of project WORK.
+    public func task(number: Int, inProject projectID: String) throws -> BoardTask {
+        guard let row = try database.queryOne(
+            "SELECT * FROM task WHERE project_id = ? AND number = ?;", [projectID, number]
+        ) else {
+            throw LocalBoardError.notFound(entity: "card number \(number)")
+        }
+        return try BoardTask(row: row)
+    }
+
     /// Full-text search across titles and descriptions, newest-relevance first.
     public func search(inProject projectID: String, matching text: String) throws -> [BoardTask] {
         let expression = Self.ftsExpression(for: text)
@@ -67,7 +77,7 @@ public struct TaskRepository {
         let compiler = TaskQueryCompiler(projectID: projectID, now: clock.now)
         let compiled = try compiler.compile(filter)
 
-        let trashClause = TaskQueryCompiler.mentionsTrash(filter) ? "" : " AND task.trashed = 0"
+        let trashClause = filter.mentionsTrash ? "" : " AND task.trashed = 0"
 
         return try database.query(
             """

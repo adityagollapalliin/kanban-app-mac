@@ -23,6 +23,22 @@ public indirect enum TaskFilter: Sendable, Equatable {
     case text(String)
 }
 
+extension TaskFilter {
+    /// Whether the query speaks about the trash at all.
+    ///
+    /// Everything that reads cards hides trashed ones by default. A query that
+    /// mentions the trash has asked for them, and gets exactly what it asked
+    /// for — which is the whole mechanism by which the trash is reachable.
+    public var mentionsTrash: Bool {
+        switch self {
+        case .flag(.trashed): true
+        case .and(let branches), .or(let branches): branches.contains(where: \.mentionsTrash)
+        case .not(let inner): inner.mentionsTrash
+        default: false
+        }
+    }
+}
+
 public enum QueryField: String, Sendable, CaseIterable {
     case due, start, created, updated, completed
     case priority, type, status, title, assignee

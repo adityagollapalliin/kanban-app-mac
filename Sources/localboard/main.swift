@@ -55,6 +55,8 @@ func printUsage() {
           localboard list                List the cards
           localboard seed                Add sample cards
           localboard export              Write the project as JSON on stdout
+          localboard trash <ID>          Move a card to the trash
+          localboard restore <ID>        Take it back out again
           localboard people              List, add or remove people
           localboard views               List, save or remove saved views
           localboard where               Print the data, diagnostics and attachment folders
@@ -76,7 +78,7 @@ func printUsage() {
         QUERY LANGUAGE
           localboard list --query "due < +7d priority >= high"
           localboard list --query "is:overdue not type:epic"
-          localboard list --query "status = \"In Progress\" or is:done"
+          localboard list --query 'status = "In Progress" or is:done'
 
           Fields    due start created updated completed priority type status
                     title assignee
@@ -177,6 +179,10 @@ case "people":
     status = withDatabase { peopleCommand(arguments, database: $0) }
 case "views":
     status = withDatabase { viewsCommand(arguments, database: $0) }
+case "trash":
+    status = withDatabase { trashCommand(arguments, database: $0, trashed: true) }
+case "restore":
+    status = withDatabase { trashCommand(arguments, database: $0, trashed: false) }
 case .some(let unknown):
     Output.error("unknown command `\(unknown)`")
     printUsage()

@@ -76,6 +76,21 @@ struct Selection {
         return match
     }
 
+    /// Finds a card by the tag printed on it — `TASK-3`, or just `3` when the
+    /// project is unambiguous.
+    func task(tag: String, in project: Project) throws -> BoardTask {
+        let digits = tag.split(separator: "-").last.map(String.init) ?? tag
+        guard let number = Int(digits) else {
+            throw CLIError("`\(tag)` is not a card. They look like \(project.key)-3.")
+        }
+
+        do {
+            return try TaskRepository(database: database).task(number: number, inProject: project.id)
+        } catch {
+            throw CLIError("\(project.key) has no card numbered \(number).")
+        }
+    }
+
     func statuses(in project: Project) throws -> [Status] {
         try boards.statuses(inProject: project.id)
     }

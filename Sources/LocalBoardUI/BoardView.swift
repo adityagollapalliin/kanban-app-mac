@@ -62,16 +62,39 @@ struct BoardView: View {
                 }
             }
 
-            if !model.savedViews.isEmpty {
-                Section("Views") {
-                    ForEach(model.savedViews) { view in
-                        savedViewRow(view)
-                    }
+            Section("Views") {
+                ForEach(model.savedViews) { view in
+                    savedViewRow(view)
                 }
+
+                // Built in, because the trash has to be reachable by someone
+                // who has never heard of `is:trashed`.
+                trashRow
             }
         }
         .listStyle(.sidebar)
     }
+
+    private var trashRow: some View {
+        let isActive = model.queryText == Self.trashQuery
+
+        return Button {
+            model.queryText = isActive ? "" : Self.trashQuery
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isActive ? "trash.fill" : "trash")
+                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                Text("Trash")
+                    .foregroundStyle(isActive ? Color.accentColor : .primary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Cards you have thrown away. Nothing is deleted; they can be put back.")
+    }
+
+    private static let trashQuery = "is:trashed"
 
     /// A view is a button rather than a selectable row: opening one changes
     /// the filter, not which board is on screen.

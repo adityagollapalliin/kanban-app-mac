@@ -318,3 +318,36 @@ func viewsCommand(_ arguments: Arguments, database: Database) -> Int32 {
         }
     }
 }
+
+// MARK: - trash and restore
+
+/// `localboard trash TASK-3` — hides a card without deleting it.
+func trashCommand(_ arguments: Arguments, database: Database, trashed: Bool) -> Int32 {
+    runCatching {
+        let tag = arguments.remainder.first
+        guard let tag else {
+            Output.error(trashed
+                ? "which card? `localboard trash TASK-3`"
+                : "which card? `localboard restore TASK-3`")
+            return ExitStatus.usage
+        }
+
+        let selection = Selection(database: database)
+        let project = try selection.project(key: arguments.option("project"))
+        let task = try selection.task(tag: tag, in: project)
+
+        guard task.trashed != trashed else {
+            Output.line(trashed
+                ? "\(task.tag(in: project)) is already in the trash."
+                : "\(task.tag(in: project)) is not in the trash.")
+            return ExitStatus.success
+        }
+
+        try TaskRepository(database: database).setTrashed(trashed, for: task.id)
+
+        Output.line(trashed
+            ? "\(task.tag(in: project)) is in the trash. Put it back with `localboard restore \(task.tag(in: project))`."
+            : "\(task.tag(in: project)) is back on the board.")
+        return ExitStatus.success
+    }
+}

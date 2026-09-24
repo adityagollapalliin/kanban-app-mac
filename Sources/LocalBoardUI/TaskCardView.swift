@@ -30,6 +30,13 @@ struct TaskCardView: View {
                         .help(typeLabel)
                 }
 
+                if task.trashed {
+                    Image(systemName: "trash")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("In the trash")
+                }
+
                 if task.priority != .normal {
                     Image(systemName: prioritySymbol)
                         .font(.caption2)
@@ -40,7 +47,8 @@ struct TaskCardView: View {
 
             Text(task.title)
                 .font(.callout)
-                .foregroundStyle(.primary)
+                .foregroundStyle(task.trashed ? .secondary : .primary)
+                .strikethrough(task.trashed, color: .secondary)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -53,6 +61,7 @@ struct TaskCardView: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .opacity(task.trashed ? 0.6 : 1)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
@@ -69,8 +78,14 @@ struct TaskCardView: View {
                 model.selectedTaskID = task.id
             }
             Divider()
-            Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                model.setTrashed(true, for: task.id)
+            if task.trashed {
+                Button("Put Back", systemImage: "arrow.uturn.backward") {
+                    model.restore(task.id)
+                }
+            } else {
+                Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                    model.setTrashed(true, for: task.id)
+                }
             }
         }
     }

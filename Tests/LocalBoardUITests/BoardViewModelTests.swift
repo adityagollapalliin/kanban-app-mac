@@ -166,6 +166,64 @@ struct BoardViewModelTests {
         #expect(model.selectedTask?.title == "Kept")
     }
 
+    // MARK: - The trash
+
+    /// Trashing has to be reversible from the app. The board hides trashed
+    /// cards, so finding one again means re-reading the board, not just
+    /// filtering what was already on screen.
+    @Test("A trashed card can be found again and put back")
+    func trashRoundTrip() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "Thrown away", toStatus: status)
+        let task = try #require(column(model, 0).tasks.first)
+
+        model.setTrashed(true, for: task.id)
+        #expect(model.totalTaskCount == 0, "the board hides it")
+
+        model.queryText = "is:trashed"
+        #expect(model.visibleTaskCount == 1, "asking for the trash reads it back")
+        let found = try #require(model.visibleColumns.flatMap(\.tasks).first)
+        #expect(found.trashed)
+        #expect(found.title == "Thrown away")
+
+        model.restore(found.id)
+        #expect(model.visibleTaskCount == 0, "it is no longer in the trash")
+
+        model.queryText = ""
+        #expect(model.totalTaskCount == 1, "and it is back on the board")
+    }
+
+    @Test("Clearing the query hides the trash again")
+    func trashHidesAgain() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "Kept", toStatus: status)
+        model.addTask(title: "Binned", toStatus: status)
+        let binned = try #require(column(model, 0).tasks.first { $0.title == "Binned" })
+        model.setTrashed(true, for: binned.id)
+
+        model.queryText = "is:trashed"
+        #expect(model.visibleTaskCount == 1)
+
+        model.queryText = ""
+        #expect(model.totalTaskCount == 1)
+        #expect(model.visibleColumns.flatMap(\.tasks).map(\.title) == ["Kept"])
+    }
+
+    @Test("A query that says nothing about the trash still excludes it")
+    func ordinaryQueriesSkipTrash() throws {
+        let model = try loadedModel()
+        let status = column(model, 0).status.id
+        model.addTask(title: "Findable", toStatus: status)
+        model.addTask(title: "Findable too", toStatus: status)
+        let gone = try #require(column(model, 0).tasks.first { $0.title == "Findable too" })
+        model.setTrashed(true, for: gone.id)
+
+        model.queryText = "title:findable"
+        #expect(model.visibleColumns.flatMap(\.tasks).map(\.title) == ["Findable"])
+    }
+
     // MARK: - Moving
 
     @Test("Moving a card to another column regroups it")

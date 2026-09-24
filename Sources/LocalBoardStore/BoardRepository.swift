@@ -81,7 +81,7 @@ public struct BoardRepository {
     /// Everything one board needs, in a handful of queries rather than one per
     /// column: the columns come back in a single join, the cards in a single
     /// pass over the project's tasks, grouped in memory.
-    public func snapshot(boardID: String) throws -> BoardSnapshot {
+    public func snapshot(boardID: String, includeTrashed: Bool = false) throws -> BoardSnapshot {
         guard let boardRow = try database.queryOne("SELECT * FROM board WHERE id = ?;", [boardID]) else {
             throw LocalBoardError.notFound(entity: "board \(boardID)")
         }
@@ -109,7 +109,10 @@ public struct BoardRepository {
             [boardID]
         )
 
-        let tasksByStatus = try tasksGroupedByStatus(projectID: board.projectID)
+        let tasksByStatus = try tasksGroupedByStatus(
+            projectID: board.projectID,
+            includeTrashed: includeTrashed
+        )
 
         let columns = try columnRows.map { row -> LoadedColumn in
             let statusID = try row.requiredString("status_id")
@@ -136,12 +139,15 @@ public struct BoardRepository {
 
     /// One query for the whole project's cards, grouped by status. A board with
     /// nine columns costs the same as a board with one.
-    private func tasksGroupedByStatus(projectID: String) throws -> [String: [BoardTask]] {
+    private func tasksGroupedByStatus(
+        projectID: String,
+        includeTrashed: Bool
+    ) throws -> [String: [BoardTask]] {
         var grouped: [String: [BoardTask]] = [:]
         try database.forEachRow(
             """
             SELECT * FROM task
-            WHERE project_id = ? AND trashed = 0
+            WHERE project_id = ?\(includeTrashed ? "" : " AND trashed = 0")
             ORDER BY status_id, sort_order;
             """,
             [projectID]

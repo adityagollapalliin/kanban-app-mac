@@ -93,11 +93,21 @@ struct TaskDetailView: View {
             }
 
             Section {
-                Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                    model.setTrashed(true, for: task.id)
+                if task.trashed {
+                    Button("Put Back", systemImage: "arrow.uturn.backward") {
+                        model.restore(task.id)
+                    }
+                } else {
+                    Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                        model.setTrashed(true, for: task.id)
+                    }
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 2) {
+                    if task.trashed {
+                        Text("In the trash. Nothing has been deleted.")
+                            .foregroundStyle(.secondary)
+                    }
                     Text("Created \(task.createdAt.formatted(date: .abbreviated, time: .shortened))")
                     Text("Updated \(task.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                     if let completed = task.completedAt {
