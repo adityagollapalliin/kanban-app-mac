@@ -1,0 +1,225 @@
+import Foundation
+import LocalBoardCore
+import LocalBoardStore
+
+/// Milestone 8.5a: the words a project uses, and the three facts about a card
+/// that go with them.
+extension BoardViewModel {
+
+    // MARK: - Reading the vocabulary
+
+    /// The kind of card this is, as the project defines it.
+    ///
+    /// Looked up by the card's raw code rather than by the built-in
+    /// enumeration, because a project can define its own kinds and the
+    /// enumeration reads those as ordinary work. Showing the enumeration would
+    /// call an Initiative a Task.
+    public func issueType(for task: BoardTask) -> IssueType? {
+        issueTypes.first { $0.code == task.typeCode }
+    }
+
+    public func typeName(for task: BoardTask) -> String {
+        issueType(for: task)?.name ?? CardAppearance.label(forType: task.type)
+    }
+
+    public func typeSymbol(for task: BoardTask) -> String {
+        let symbol = issueType(for: task)?.symbol ?? ""
+        return symbol.isEmpty ? CardAppearance.symbol(forType: task.type) : symbol
+    }
+
+    public func priorityName(for task: BoardTask) -> String {
+        priorityValues.first { $0.code == task.priority.rawValue }?.name
+            ?? CardAppearance.label(forPriority: task.priority)
+    }
+
+    /// How a link reads from the end you are standing on.
+    public func linkLabel(_ kind: LinkKind, outward: Bool) -> String {
+        // The stored pair, when there is one. Codes 1 and 4 are the old
+        // inverse-only spellings, which are the inward halves of their pairs.
+        if let pair = linkTypes.first(where: { $0.code == kind.rawValue }) {
+            return pair.label(outward: outward)
+        }
+        if let pair = linkTypes.first(where: { $0.code == kind.inverse.rawValue }) {
+            return pair.label(outward: !outward)
+        }
+        return kind.label
+    }
+
+    // MARK: - Editing the vocabulary
+
+    public func addIssueType(named name: String, symbol: String, level: Int) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try vocabularyRepository.addIssueType(
+                inProject: projectID, name: name, symbol: symbol, level: level
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func updateIssueType(_ type: IssueType) {
+        perform {
+            try vocabularyRepository.updateIssueType(type)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteIssueType(_ type: IssueType) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try vocabularyRepository.deleteIssueType(code: type.code, inProject: projectID)
+            reloadSnapshot()
+        }
+    }
+
+    public func updatePriority(_ value: PriorityValue) {
+        perform {
+            try vocabularyRepository.updatePriority(value)
+            reloadSnapshot()
+        }
+    }
+
+    public func addLinkType(outward: String, inward: String) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try vocabularyRepository.addLinkType(
+                inProject: projectID, outward: outward, inward: inward
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func updateLinkType(_ type: LinkType) {
+        perform {
+            try vocabularyRepository.updateLinkType(type)
+            reloadSnapshot()
+        }
+    }
+
+    public func addResolution(named name: String) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try vocabularyRepository.addResolution(inProject: projectID, name: name)
+            reloadSnapshot()
+        }
+    }
+
+    public func setDefaultResolution(_ resolutionID: String) {
+        perform {
+            try vocabularyRepository.setDefaultResolution(resolutionID)
+            reloadSnapshot()
+        }
+    }
+
+    public func renameResolution(_ resolutionID: String, to name: String) {
+        perform {
+            try vocabularyRepository.renameResolution(resolutionID, to: name)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteResolution(_ resolutionID: String) {
+        perform {
+            try vocabularyRepository.deleteResolution(resolutionID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Resolution on a card
+
+    public func resolution(for task: BoardTask) -> Resolution? {
+        guard let id = task.resolutionID else { return nil }
+        return resolutions.first { $0.id == id }
+    }
+
+    public func setResolution(_ resolutionID: String?, on taskID: String) {
+        perform {
+            try componentRepository.setResolution(resolutionID, forTask: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Components
+
+    public func components(for task: BoardTask) -> [Component] {
+        componentsByTask[task.id] ?? []
+    }
+
+    public func createComponent(named name: String, defaultAssigneeID: String?) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try componentRepository.create(
+                inProject: projectID, name: name, defaultAssigneeID: defaultAssigneeID
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func updateComponent(_ component: Component) {
+        perform {
+            try componentRepository.update(component)
+            reloadSnapshot()
+        }
+    }
+
+    public func deleteComponent(_ componentID: String) {
+        perform {
+            try componentRepository.delete(componentID)
+            reloadSnapshot()
+        }
+    }
+
+    public func addComponent(_ componentID: String, to taskID: String) {
+        perform {
+            try componentRepository.add(componentID, toTask: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    public func removeComponent(_ componentID: String, from taskID: String) {
+        perform {
+            try componentRepository.remove(componentID, fromTask: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Versions on a card
+
+    public func versions(for task: BoardTask, role: VersionRole) -> [Version] {
+        (try? componentRepository.versions(forTask: task.id, role: role)) ?? []
+    }
+
+    public func addVersion(_ versionID: String, to taskID: String, as role: VersionRole) {
+        perform {
+            try componentRepository.add(versionID, toTask: taskID, as: role)
+            reloadSnapshot()
+        }
+    }
+
+    public func removeVersion(_ versionID: String, from taskID: String, as role: VersionRole) {
+        perform {
+            try componentRepository.remove(versionID, fromTask: taskID, as: role)
+            reloadSnapshot()
+        }
+    }
+
+    /// Changes what kind of card this is.
+    ///
+    /// The code is written straight to the column, because that column has
+    /// always held a code and a project's own kinds are more codes.
+    public func setIssueTypeCode(_ code: Int, on taskID: String) {
+        perform {
+            try taskRepository.setTypeCode(code, for: taskID)
+            reloadSnapshot()
+        }
+    }
+
+    // MARK: - Environment
+
+    public func setEnvironment(_ text: String, on taskID: String) {
+        perform {
+            try taskRepository.setEnvironment(text, for: taskID)
+            reloadSnapshot()
+        }
+    }
+}

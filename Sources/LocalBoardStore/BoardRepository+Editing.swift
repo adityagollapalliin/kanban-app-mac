@@ -76,6 +76,14 @@ extension BoardRepository {
                 [UUID().uuidString, projectID, trimmedName, SortOrder.step, now]
             )
 
+            // The kinds of card, the priority scale, the link pairs and the
+            // resolutions. Schema 9 seeded every project that existed when it
+            // ran; a project made afterwards gets them here, and the two agree
+            // exactly — otherwise a card moved between two spaces created on
+            // either side of the upgrade would change kind.
+            try VocabularyRepository(database: database)
+                .seedDefaults(forProject: projectID, createdAt: now)
+
             for (index, starter) in [("To Do", StatusCategory.toDo), ("In Progress", .inProgress), ("Done", .done)].enumerated() {
                 try insertColumn(
                     boardID: boardID,

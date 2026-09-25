@@ -201,6 +201,8 @@ public final class BoardViewModel {
     let dashboardDataRepository: DashboardDataRepository
     let computedFieldRepository: ComputedFieldRepository
     let timeRepository: TimeRepository
+    let vocabularyRepository: VocabularyRepository
+    let componentRepository: ComponentRepository
 
     /// The project's own fields, and what every card on the board has put in
     /// them — gathered in one query rather than one per card.
@@ -216,6 +218,15 @@ public final class BoardViewModel {
     public internal(set) var goals: [Goal] = []
     public internal(set) var goalFolders: [GoalFolder] = []
     public internal(set) var dashboards: [Dashboard] = []
+
+    /// The words this project uses for its own work — the kinds of card, the
+    /// priority scale, the link pairs, the resolutions — and its components.
+    public internal(set) var issueTypes: [IssueType] = []
+    public internal(set) var priorityValues: [PriorityValue] = []
+    public internal(set) var linkTypes: [LinkType] = []
+    public internal(set) var resolutions: [Resolution] = []
+    public internal(set) var components: [Component] = []
+    public internal(set) var componentsByTask: [String: [Component]] = [:]
 
     /// Bumped whenever a dashboard's widgets or the time log change.
     ///
@@ -381,6 +392,8 @@ public final class BoardViewModel {
         self.dashboardDataRepository = DashboardDataRepository(database: database, clock: clock)
         self.computedFieldRepository = ComputedFieldRepository(database: database, clock: clock)
         self.timeRepository = TimeRepository(database: database, clock: clock)
+        self.vocabularyRepository = VocabularyRepository(database: database, clock: clock)
+        self.componentRepository = ComponentRepository(database: database, clock: clock)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -444,6 +457,12 @@ public final class BoardViewModel {
                 goals = try goalRepository.goals(inProject: projectID)
                 goalFolders = try goalRepository.folders(inProject: projectID)
                 dashboards = try dashboardRepository.dashboards(inProject: projectID)
+                issueTypes = try vocabularyRepository.issueTypes(inProject: projectID)
+                priorityValues = try vocabularyRepository.priorities(inProject: projectID)
+                linkTypes = try vocabularyRepository.linkTypes(inProject: projectID)
+                resolutions = try vocabularyRepository.resolutions(inProject: projectID)
+                components = try componentRepository.components(inProject: projectID)
+                componentsByTask = try componentRepository.componentsByTask(inProject: projectID)
                 sprints = try sprintRepository.sprints(inProject: projectID)
                 activeSprint = try sprintRepository.activeSprint(inProject: projectID)
                 automations = try automationRepository.automations(inProject: projectID)

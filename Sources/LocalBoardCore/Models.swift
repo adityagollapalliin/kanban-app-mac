@@ -294,7 +294,26 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     public var statusID: String
     /// Per-project counter behind the WORK-14 label. Unique with `projectID`.
     public var number: Int
+    /// The card's kind as one of the four the app has always known.
+    ///
+    /// Since schema 9 a project can define its own kinds, and one of those has
+    /// a code outside this enumeration. `typeCode` is the truth; this is the
+    /// nearest built-in reading of it, and falls back to `.task` for a kind
+    /// the project invented — so anything switching on it keeps working and
+    /// treats an unfamiliar kind as ordinary work rather than refusing to
+    /// load the card.
+    ///
+    /// Anything *showing* the kind to somebody should look up the project's
+    /// `IssueType` by `typeCode` instead, or it will call an Initiative a Task.
     public var type: TaskType
+    /// What `task.type` actually holds.
+    public var typeCode: Int
+    /// Why it was closed, once it is. Cleared when it is reopened.
+    public var resolutionID: String?
+    public var resolvedAt: Date?
+    /// Where the problem shows up: "Safari 18 on an M1, staging only". Free
+    /// text on purpose — nobody can enumerate this in advance.
+    public var environment: String
     public var title: String
     public var descriptionMarkdown: String
     public var assigneeID: String?
@@ -353,6 +372,10 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         statusID: String,
         number: Int,
         type: TaskType = .task,
+        typeCode: Int? = nil,
+        resolutionID: String? = nil,
+        resolvedAt: Date? = nil,
+        environment: String = "",
         title: String,
         descriptionMarkdown: String = "",
         assigneeID: String? = nil,
@@ -383,6 +406,10 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.statusID = statusID
         self.number = number
         self.type = type
+        self.typeCode = typeCode ?? type.rawValue
+        self.resolutionID = resolutionID
+        self.resolvedAt = resolvedAt
+        self.environment = environment
         self.title = title
         self.descriptionMarkdown = descriptionMarkdown
         self.assigneeID = assigneeID

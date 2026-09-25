@@ -321,6 +321,15 @@ public struct TaskRepository {
             if changedColumn {
                 try recordStatusChange(taskID: taskID, from: moving.statusID, to: statusID, at: now)
 
+                // Why it was closed follows where it is. A card arriving in a
+                // Done column with no resolution is given the project's
+                // default; a card leaving one has its resolution cleared,
+                // because "why it was closed" is not a fact about an open
+                // card. Decided on the column's *category*, so a project whose
+                // last column is called "Shipped" works the same.
+                try ComponentRepository(database: database, clock: clock)
+                    .reconcileResolution(forTask: taskID)
+
                 // A card that recurs on completion produces its next one here,
                 // where "finished" actually happens — not on a timer that
                 // would have to work out afterwards that it had.
@@ -413,6 +422,35 @@ public struct TaskRepository {
     /// what the thirty-day purge counts from: `updated_at` moves when the
     /// trashing itself is recorded and so cannot answer "how long has this
     /// been in the bin".
+    /// Changes a card's kind to one of the project's own codes.
+    ///
+    /// Refused if the project has no such kind — writing a code nothing names
+    /// would leave a card whose kind cannot be displayed.
+    public func setTypeCode(_ code: Int, for taskID: String) throws {
+        let task = try task(id: taskID)
+        let known = try database.count(
+            "SELECT COUNT(*) FROM issue_type WHERE project_id = ? AND code = ?;",
+            [task.projectID, code]
+        )
+        guard known > 0 else {
+            throw LocalBoardError.invalidInput(
+                field: "type", detail: "This project has no kind of card with that number."
+            )
+        }
+        try database.execute(
+            "UPDATE task SET type = ?, updated_at = ? WHERE id = ?;", [code, clock.now, taskID]
+        )
+    }
+
+    /// Where the problem shows up. Free text, trimmed but not interpreted.
+    public func setEnvironment(_ text: String, for taskID: String) throws {
+        let changed = try database.execute(
+            "UPDATE task SET environment = ?, updated_at = ? WHERE id = ?;",
+            [text.trimmingCharacters(in: .whitespacesAndNewlines), clock.now, taskID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "task \(taskID)") }
+    }
+
     public func setTrashed(_ trashed: Bool, for taskID: String) throws {
         try update(taskID, "trashed = ?, trashed_at = ?", [trashed, trashed ? clock.now.sqlValue : SQLValue.null])
     }

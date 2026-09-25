@@ -6,6 +6,60 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 9
+
+### Milestone 8.5a: the words a project uses for its own work
+- **Kinds of card are the project's own.** Epic, Story, Task and Bug are now
+  rows it can rename, re-icon and add to, with a `level` so something can sit
+  *above* Epic — an Initiative, a theme. Being a subtask stays a fact about a
+  card's parent rather than a kind, so a card can be made one without changing
+  what it is.
+- **Priorities and link types likewise.** A link is stored as the pair it is —
+  "Blocks" and "Is blocked by" are one relationship read from two ends, which
+  is why they were never separately configurable and are not now.
+- **Resolutions**: Done, Won't Do, Duplicate, Cannot Reproduce, and whatever
+  else a project adds. A card reaching a Done column takes the default one and
+  records when; a card leaving one has it cleared, because "why it was closed"
+  is not a fact about an open card. Decided on the column's *category*, so a
+  project whose last column is called "Shipped" behaves the same.
+- **Components**, each with a default assignee. Work filed against one lands
+  on its owner without anybody choosing — unless the card is already assigned,
+  in which case somebody already chose.
+- **Affects Version and Fix Version**, and a free-text **Environment**. A card
+  can have several fix versions; `task.version_id` goes on meaning the first
+  of them, exactly as `assignee_id` has meant the first assignee since v6, so
+  every badge, query and report that reads it carries on working.
+- **A backup before every migration**, kept five deep. A migration that is
+  wrong in a way the tests did not catch no longer eats the only copy.
+
+Each of the four vocabularies keeps the integer the card already holds and
+adds a table beside it, seeded with today's values under today's numbers. That
+is what let v9 be purely additive: no saved filter, board rule or automation
+had to be rewritten, and the query language's regression baseline is untouched.
+
+### Fixed
+- **Closing a database twice closed the SQLite connection twice** — a
+  use-after-free. The CLI, the app on teardown and every test that opened a
+  file were all doing it. A corrupted SQLite allocator does not fail where it
+  was corrupted, so this surfaced as an intermittent `SQLITE_MISUSE` in an
+  unrelated migration: clean across six full-suite runs before the new tests,
+  four failures in eight after. Every entry point now also refuses work on a
+  closed connection rather than handing SQLite a freed handle and relying on
+  it happening to return an error.
+- A card whose kind the project invented could not be read at all — the type
+  column was decoded through the fixed enumeration, which rejected the code.
+  The raw code is now kept alongside the nearest built-in reading of it.
+- Deleting a kind of card ignored trashed cards, so a card could come back out
+  of the trash relabelled as something else.
+- A project created *after* the v9 migration got no vocabulary at all, because
+  the migration seeded only the projects that existed when it ran.
+
+### Known limits
+- Priority steps can be renamed but not added or reordered. `priority >= high`
+  compiles to a comparison against the rank, and the query language is frozen
+  behind its regression baseline until 8.5b. The settings pane says so rather
+  than showing a disabled button nobody can explain.
+
 ## Unreleased — schema 8
 
 ### Milestone 8: goals, dashboards, fields & time

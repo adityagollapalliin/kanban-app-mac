@@ -192,7 +192,14 @@ extension BoardTask {
             projectID: try row.requiredString("project_id"),
             statusID: try row.requiredString("status_id"),
             number: try row.requiredInt("number"),
-            type: try row.requiredEnum("type", TaskType.self),
+            // A project may have defined its own kinds, whose codes are
+            // outside the enumeration. The raw code is kept; the enumeration
+            // is the nearest built-in reading of it.
+            type: row.enumValue("type", TaskType.self) ?? .task,
+            typeCode: try row.requiredInt("type"),
+            resolutionID: row.string("resolution_id"),
+            resolvedAt: row.date("resolved_at"),
+            environment: row.string("environment") ?? "",
             title: try row.requiredString("title"),
             descriptionMarkdown: row.string("description_md") ?? "",
             assigneeID: row.string("assignee_id"),
@@ -370,6 +377,75 @@ extension CustomField {
             rollupLinkID: row.string("rollup_link_id"),
             rollupFieldID: row.string("rollup_field_id"),
             rollupFunction: row.enumValue("rollup_function", RollupFunction.self) ?? .sum,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension IssueType {
+    init(row: Row) throws {
+        self.init(
+            projectID: try row.requiredString("project_id"),
+            code: try row.requiredInt("code"),
+            name: try row.requiredString("name"),
+            symbol: row.string("symbol") ?? "",
+            color: row.string("color") ?? "",
+            level: Int(row.int("level") ?? 0),
+            descriptionTemplate: row.string("description_template") ?? "",
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension PriorityValue {
+    init(row: Row) throws {
+        self.init(
+            projectID: try row.requiredString("project_id"),
+            code: try row.requiredInt("code"),
+            name: try row.requiredString("name"),
+            rank: try row.requiredInt("rank"),
+            symbol: row.string("symbol") ?? "",
+            color: row.string("color") ?? "",
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension LinkType {
+    init(row: Row) throws {
+        self.init(
+            projectID: try row.requiredString("project_id"),
+            code: try row.requiredInt("code"),
+            outward: try row.requiredString("outward"),
+            inward: try row.requiredString("inward"),
+            symbol: row.string("symbol") ?? "",
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension Resolution {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            isDefault: row.bool("is_default") ?? false,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Component {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            description: row.string("description") ?? "",
+            defaultAssigneeID: row.string("default_assignee_id"),
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
         )

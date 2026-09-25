@@ -20,10 +20,14 @@ struct ProjectSettingsView: View {
                 .tabItem { Label("Workflow", systemImage: "arrow.triangle.branch") }
             AutomationsPane(model: model)
                 .tabItem { Label("Rules", systemImage: "wand.and.stars") }
+            VocabularyPane(model: model)
+                .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
+            ComponentsPane(model: model)
+                .tabItem { Label("Components", systemImage: "square.stack.3d.up") }
             TemplatesPane(model: model)
                 .tabItem { Label("Templates", systemImage: "doc.on.doc") }
         }
-        .frame(width: 560, height: 440)
+        .frame(width: 620, height: 460)
     }
 }
 
@@ -600,6 +604,345 @@ private struct TemplatesPane: View {
                     projectTemplateName = ""
                 }
                 .disabled(projectTemplateName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(16)
+    }
+}
+
+// MARK: - Vocabulary
+
+/// The words this project uses for its own work.
+///
+/// Four lists rather than four tabs: they are short, they are related, and the
+/// question "what do we call things here" is answered by seeing them together.
+private struct VocabularyPane: View {
+    let model: BoardViewModel
+
+    @State private var newTypeName = ""
+    @State private var newTypeSymbol = "square"
+    @State private var newTypeLevel = 0
+    @State private var newResolution = ""
+    @State private var newLinkOutward = ""
+    @State private var newLinkInward = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                issueTypes
+                Divider()
+                priorities
+                Divider()
+                linkTypes
+                Divider()
+                resolutions
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Kinds of card
+
+    private var issueTypes: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Kinds of card")
+                .font(.headline)
+            Text("A level above 0 sits over the rest — an Epic is 1, and an Initiative over that would be 2.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(model.issueTypes) { type in
+                HStack(spacing: 8) {
+                    Image(systemName: type.symbol.isEmpty ? "square" : type.symbol)
+                        .frame(width: 18)
+                        .foregroundStyle(.secondary)
+                    TextField("Name", text: nameBinding(type))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 150)
+                    Text(type.level == 0 ? "Work" : "Level \(type.level)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        model.deleteIssueType(type)
+                    }
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                    .help("Refused while any card is still this kind")
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("New kind", text: $newTypeName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 150)
+                TextField("SF Symbol", text: $newTypeSymbol)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 110)
+                Stepper("Level \(newTypeLevel)", value: $newTypeLevel, in: 0...3)
+                    .fixedSize()
+                Button("Add") {
+                    model.addIssueType(named: newTypeName, symbol: newTypeSymbol, level: newTypeLevel)
+                    newTypeName = ""
+                }
+                .disabled(newTypeName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    private func nameBinding(_ type: IssueType) -> Binding<String> {
+        Binding(
+            get: { type.name },
+            set: { typed in
+                var edited = type
+                edited.name = typed
+                if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                    model.updateIssueType(edited)
+                }
+            }
+        )
+    }
+
+    // MARK: Priorities
+
+    private var priorities: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Priorities")
+                .font(.headline)
+
+            ForEach(model.priorityValues) { value in
+                HStack(spacing: 8) {
+                    Image(systemName: value.symbol.isEmpty ? "minus" : value.symbol)
+                        .frame(width: 18)
+                        .foregroundStyle(.secondary)
+                    TextField("Name", text: Binding(
+                        get: { value.name },
+                        set: { typed in
+                            var edited = value
+                            edited.name = typed
+                            if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                                model.updatePriority(edited)
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 150)
+                    Text("Rank \(value.rank)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+
+            // Said plainly rather than shown as a disabled button nobody can
+            // explain: `priority >= high` compiles to a comparison against the
+            // rank, and the query language is frozen behind its regression
+            // baseline until 8.5b.
+            Text("Steps can be renamed, but not added or reordered yet — searching with `priority >= high` compares ranks, and that comparison is frozen until the query language work.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Link types
+
+    private var linkTypes: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Kinds of link")
+                .font(.headline)
+            Text("A link is one relationship read from two ends, so each is a pair.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(model.linkTypes) { type in
+                HStack(spacing: 8) {
+                    Image(systemName: type.symbol.isEmpty ? "link" : type.symbol)
+                        .frame(width: 18)
+                        .foregroundStyle(.secondary)
+                    TextField("Outward", text: Binding(
+                        get: { type.outward },
+                        set: { typed in
+                            var edited = type
+                            edited.outward = typed
+                            if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                                model.updateLinkType(edited)
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("Inward", text: Binding(
+                        get: { type.inward },
+                        set: { typed in
+                            var edited = type
+                            edited.inward = typed
+                            if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                                model.updateLinkType(edited)
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Causes", text: $newLinkOutward)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Is caused by", text: $newLinkInward)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add") {
+                    model.addLinkType(outward: newLinkOutward, inward: newLinkInward)
+                    newLinkOutward = ""
+                    newLinkInward = ""
+                }
+                .disabled(
+                    newLinkOutward.trimmingCharacters(in: .whitespaces).isEmpty
+                    || newLinkInward.trimmingCharacters(in: .whitespaces).isEmpty
+                )
+            }
+        }
+    }
+
+    // MARK: Resolutions
+
+    private var resolutions: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Resolutions")
+                .font(.headline)
+            Text("Why a card was closed. The default is applied when a card reaches a Done column without one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(model.resolutions) { resolution in
+                HStack(spacing: 8) {
+                    Button {
+                        model.setDefaultResolution(resolution.id)
+                    } label: {
+                        Image(systemName: resolution.isDefault ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(resolution.isDefault ? Color.accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(resolution.isDefault ? "The default" : "Make this the default")
+
+                    TextField("Name", text: Binding(
+                        get: { resolution.name },
+                        set: { typed in
+                            if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                                model.renameResolution(resolution.id, to: typed)
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+
+                    Spacer()
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        model.deleteResolution(resolution.id)
+                    }
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                    .disabled(resolution.isDefault)
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("New resolution", text: $newResolution)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                Button("Add") {
+                    model.addResolution(named: newResolution)
+                    newResolution = ""
+                }
+                .disabled(newResolution.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+}
+
+// MARK: - Components
+
+/// Parts of the thing being built, and who looks after each.
+private struct ComponentsPane: View {
+    let model: BoardViewModel
+
+    @State private var name = ""
+    @State private var assignee: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("A component is a part of what you are building. Work filed against one lands on its owner without anybody choosing — unless the card is already assigned, in which case somebody already chose.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            List {
+                ForEach(model.components) { component in
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.stack.3d.up")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        TextField("Name", text: Binding(
+                            get: { component.name },
+                            set: { typed in
+                                var edited = component
+                                edited.name = typed
+                                if !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+                                    model.updateComponent(edited)
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+
+                        Picker("", selection: Binding(
+                            get: { component.defaultAssigneeID },
+                            set: { chosen in
+                                var edited = component
+                                edited.defaultAssigneeID = chosen
+                                model.updateComponent(edited)
+                            }
+                        )) {
+                            Text("Nobody").tag(String?.none)
+                            ForEach(model.people) { person in
+                                Text(person.name).tag(String?.some(person.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 150)
+
+                        Spacer()
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            model.deleteComponent(component.id)
+                        }
+                        .buttonStyle(.borderless)
+                        .labelStyle(.iconOnly)
+                        .help("Cards lose the tag; nothing else about them changes")
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("New component", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 160)
+                Picker("Owner", selection: $assignee) {
+                    Text("Nobody").tag(String?.none)
+                    ForEach(model.people) { person in
+                        Text(person.name).tag(String?.some(person.id))
+                    }
+                }
+                .frame(width: 200)
+                Button("Add") {
+                    model.createComponent(named: name, defaultAssigneeID: assignee)
+                    name = ""
+                    assignee = nil
+                }
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(16)

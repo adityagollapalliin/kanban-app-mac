@@ -124,6 +124,14 @@ extension Database {
             )
         }
 
+        // Since schema 9 a project also carries its own vocabulary, and
+        // `createProject` seeds it. A hand-seeded project without one is a
+        // shape the app cannot actually produce. Skipped on a database
+        // deliberately held at an earlier version.
+        if try hasTable("issue_type") {
+            try VocabularyRepository(database: self).seedDefaults(forProject: projectID)
+        }
+
         var ids: [String] = []
         for (index, starter) in [("To Do", 0), ("In Progress", 1), ("Done", 2)].enumerated() {
             let statusID = UUID().uuidString

@@ -44,6 +44,7 @@ struct TaskDetailView: View {
             ListsSection(task: task, model: model)
             RecurrenceSection(task: task, model: model)
             SprintAndTimerSection(task: task, model: model)
+            CardVocabularySection(task: task, model: model)
             CustomFieldSection(task: task, model: model)
             labelsSection
             checklistSection
