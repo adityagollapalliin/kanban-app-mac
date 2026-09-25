@@ -6,6 +6,48 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 7
+
+### Milestone 7: the day in front of you, and what is written beside it
+- **My Work**: Overdue, Today, Next 7 days and Unscheduled, with dragging
+  between them to reschedule. Overdue sits *above* today rather than inside
+  it — something due yesterday is not part of today's plan — and takes no
+  drops, because you cannot decide to have been late.
+- **Plan my day**: a list to tick rather than a plan the app writes. Choosing
+  a card for today does not move its due date: "I am doing this today" and
+  "this is due today" are different statements.
+- **Snoozing** cards and reminders — later today, tomorrow, next week — which
+  also leaves the due date alone. The date is a promise to other people; a
+  snooze is five minutes' peace.
+- **Reminders**: standalone, deliberately not cards, with local
+  notifications at the time they were set for rather than at nine on the day.
+- **Natural language everywhere you type a card**: `Fix login bug tomorrow
+  3pm !high #backend @Aditya` sets the date, the time, the priority, the label
+  and the assignee. What it understood is shown as chips before you press
+  Return, and a tag or name that matches nothing is drawn faintly and left
+  off rather than invented.
+- **Notepad**: one pad, always the same one, with any unticked line a click
+  away from being a card — and ticked off in the pad when it becomes one.
+- **Task tray**: cards set aside rather than closed, in a strip along the
+  bottom.
+- **Comment action items**: a remark becomes a request with somebody's name
+  against it, ticked off where it was made. They appear under "Asked of you"
+  in My Work.
+- **Docs**: Markdown pages that nest, with a slash menu that inserts only
+  Markdown, `@KEY-12` mentions that show the card's status as it is now, and
+  backlinks on the card. Selected text becomes a card and leaves a mention
+  behind, so the page still says what was decided and now says where it went.
+- **Whiteboards**: an infinite canvas with sticky notes, shapes, text,
+  freehand ink and connectors. A sticky becomes a card keeping everything it
+  said — first line the title, the rest the notes.
+
+### Fixed
+- **My Work cost 361 MB at a thousand cards.** Its Unscheduled section drew
+  every undated card; each section now shows twenty and offers the rest.
+  361 MB → 81 MB.
+- **The Docs page tree floated in the middle of the window.** An `HSplitView`
+  sized it to its content, and an empty list has no height to give.
+
 ## Unreleased — schema 6
 
 ### Milestone 6: structure and views

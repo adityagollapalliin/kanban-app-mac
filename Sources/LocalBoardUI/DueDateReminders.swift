@@ -22,6 +22,7 @@ final class DueDateReminders {
     /// exactly the kind of thing that drifts out of step and starts sending
     /// reminders for cards that were finished last week.
     private static let prefix = "localboard.due."
+    private static let reminderPrefix = "localboard.reminder."
 
     private let center = UNUserNotificationCenter.current()
 
@@ -75,11 +76,53 @@ final class DueDateReminders {
         }
     }
 
+    /// Standalone reminders, which ring at the moment they were set for
+    /// rather than at nine on the day.
+    ///
+    /// A card is due on a day; a reminder is for a time — "ring the dentist at
+    /// three" means three. Rounding it to nine in the morning would make the
+    /// reminder useless and the card's behaviour wrong.
+    func reschedule(reminders: [Reminder], now: Date = .now) async {
+        let existing = await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { $0.hasPrefix(Self.reminderPrefix) }
+        center.removePendingNotificationRequests(withIdentifiers: existing)
+
+        guard await authorizationStatus() == .authorized else { return }
+
+        for reminder in reminders {
+            guard !reminder.isDone, let due = reminder.dueAt else { continue }
+
+            // A snoozed reminder rings when it comes back, not when it was
+            // originally for — that is what the snooze asked for.
+            let fireAt = max(due, reminder.snoozedUntil ?? due)
+            guard fireAt > now else { continue }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Reminder"
+            content.body = reminder.title
+            content.sound = .default
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: Calendar.current.dateComponents(
+                    [.year, .month, .day, .hour, .minute], from: fireAt
+                ),
+                repeats: false
+            )
+
+            try? await center.add(UNNotificationRequest(
+                identifier: Self.reminderPrefix + reminder.id,
+                content: content,
+                trigger: trigger
+            ))
+        }
+    }
+
     /// Clears everything this app has scheduled, for turning reminders off.
     func cancelAll() async {
         let existing = await center.pendingNotificationRequests()
             .map(\.identifier)
-            .filter { $0.hasPrefix(Self.prefix) }
+            .filter { $0.hasPrefix(Self.prefix) || $0.hasPrefix(Self.reminderPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: existing)
     }
 }

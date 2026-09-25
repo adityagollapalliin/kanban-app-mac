@@ -42,11 +42,12 @@ struct BoardView: View {
     /// start, the releases it is going into, and what the history says about
     /// all of it — views of one project rather than a set of places.
     enum BoardScreen: String, CaseIterable, Identifiable {
-        case board, list, table, calendar, timeline, workload, box, mindMap, backlog, sprints, releases, activity, analytics, everything
+        case home, board, list, table, calendar, timeline, workload, box, mindMap, backlog, sprints, releases, activity, analytics, everything, reminders, notepad, docs, whiteboard
         var id: String { rawValue }
 
         var label: String {
             switch self {
+            case .home: "My Work"
             case .board: "Board"
             case .list: "List"
             case .table: "Table"
@@ -56,6 +57,10 @@ struct BoardView: View {
             case .mindMap: "Mind Map"
             case .activity: "Activity"
             case .everything: "Everything"
+            case .reminders: "Reminders"
+            case .notepad: "Notepad"
+            case .docs: "Docs"
+            case .whiteboard: "Whiteboard"
             case .backlog: "Backlog"
             case .timeline: "Timeline"
             case .sprints: "Sprints"
@@ -75,6 +80,7 @@ struct BoardView: View {
 
         var symbol: String {
             switch self {
+            case .home: "sun.max"
             case .board: "rectangle.split.3x1"
             case .list: "list.bullet.rectangle"
             case .table: "tablecells"
@@ -84,6 +90,10 @@ struct BoardView: View {
             case .mindMap: "point.3.connected.trianglepath.dotted"
             case .activity: "clock.arrow.circlepath"
             case .everything: "globe"
+            case .reminders: "bell"
+            case .notepad: "note.text"
+            case .docs: "doc.text"
+            case .whiteboard: "rectangle.dashed"
             case .backlog: "tray.2"
             case .timeline: "chart.bar.xaxis"
             case .sprints: "figure.run"
@@ -167,8 +177,9 @@ struct BoardView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if model.hasSelection {
-                BulkActionBar(model: model)
+            VStack(spacing: 0) {
+                if !model.trayTaskIDs.isEmpty { TaskTray(model: model) }
+                if model.hasSelection { BulkActionBar(model: model) }
             }
         }
         .animation(.easeOut(duration: 0.15), value: model.hasSelection)
@@ -262,6 +273,16 @@ struct BoardView: View {
                 newColumnName = ""
                 isAddingColumn = true
             }
+        case .home:
+            HomeView(model: model, onOpenInWindow: openInWindow)
+        case .reminders:
+            RemindersView(model: model)
+        case .notepad:
+            NotepadView(model: model)
+        case .docs:
+            DocsView(model: model, onOpenInWindow: openInWindow)
+        case .whiteboard:
+            WhiteboardView(model: model)
         case .list:
             ListView(model: model, onOpenInWindow: openInWindow)
         case .table:

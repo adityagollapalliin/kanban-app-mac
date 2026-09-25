@@ -468,6 +468,13 @@ struct BoardColumnView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.quaternary.opacity(0.4))
+        .overlay(alignment: .bottomLeading) {
+            if !topTitle.isEmpty {
+                QuickAddHints(result: model.preview(topTitle), model: model)
+                    .padding(.leading, 28)
+                    .offset(y: 12)
+            }
+        }
     }
 
     private var addCardField: some View {
@@ -498,7 +505,9 @@ struct BoardColumnView: View {
             return
         }
 
-        model.addTask(title: title, toStatus: column.status.id, atTop: top)
+        // Quick-add understands what it can of the line — a date, a priority,
+        // a #tag, an @name — and leaves the rest as the title.
+        model.quickAdd(title, toStatus: column.status.id, atTop: top)
 
         if top { topTitle = "" } else { newTitle = "" }
         // Stay focused: adding cards is something people do several times in a

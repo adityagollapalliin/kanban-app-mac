@@ -9,7 +9,7 @@ with `localboard seed --count 1000`.
 
 | Budget | Target | Measured at 1,013 cards |
 |---|---|---|
-| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **103 MB** board, **85 MB** table, **93 MB** list, **77 MB** calendar, **96 MB** mind map, **71 MB** everything, **69 MB** activity, **62 MB** workload, **61 MB** box (**67 MB** on a seven-card board) |
+| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **103 MB** board, **93 MB** list, **85 MB** table, **81 MB** my work, **77 MB** calendar, **96 MB** mind map, **71 MB** everything, **69 MB** activity, **62 MB** workload and whiteboard, **61 MB** box, **57 MB** docs, **56 MB** notepad (**67 MB** on a seven-card board) |
 | Idle CPU | ~0%, no polling | **0.0%** |
 | Launch | under 1 second to usable UI | **~150 ms** to process, UI immediately after |
 
@@ -36,10 +36,16 @@ Two fixes, both in this release:
   hundred: 503 MB → 107 MB.
 
 The calendar's "no date" strip had the same shape of problem — every undated
-card built at once — and is now lazy: 181 MB → 77 MB.
+card built at once — and is now lazy: 181 MB → 77 MB. So did **My Work** in
+Milestone 7, whose Unscheduled section held nine hundred cards and cost
+**361 MB**; each section now shows twenty and offers the rest, which is
+**81 MB**.
 
-The lesson worth keeping: **a nested lazy container is not lazy**, and no test
-can tell you so. Only measuring with the view on screen can.
+The lesson worth keeping, now four times over: **a nested lazy container is
+not lazy, and a container with no scrolling region of its own cannot be lazy
+at all.** No test can tell you either. Only measuring with the view on screen
+can — which is why every screen in this table was measured that way, one at a
+time, rather than inferred from the board's number.
 
 The same rule caught a third case in Milestone 6: the **mind map** built every
 node at once and cost **297 MB** at a thousand cards. A map has no scrolling

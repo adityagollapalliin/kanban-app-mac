@@ -193,6 +193,9 @@ public final class BoardViewModel {
     let viewConfigRepository: ViewConfigRepository
     let activityRepository: ActivityRepository
     let workloadRepository: WorkloadRepository
+    let personalRepository: PersonalRepository
+    let docRepository: DocRepository
+    let whiteboardRepository: WhiteboardRepository
 
     /// The project's own fields, and what every card on the board has put in
     /// them — gathered in one query rather than one per card.
@@ -299,6 +302,17 @@ public final class BoardViewModel {
     public internal(set) var archivedLists: [TaskList] = []
     public internal(set) var archivedFolders: [Folder] = []
 
+    /// Reminders, the notepad, and the cards open in their own windows.
+    public internal(set) var reminders: [Reminder] = []
+    public var notepad: String = ""
+    /// Cards put in the tray: open panels set aside rather than closed, so
+    /// several can be kept to hand and swapped between.
+    public internal(set) var trayTaskIDs: [String] = []
+    /// The documents that mention the open card.
+    public internal(set) var backlinks: [Doc] = []
+    /// Action items asked of whoever "me" is.
+    public internal(set) var myActionItems: [Comment] = []
+
     /// The open card's recurrence rule, loaded with the selection.
     public internal(set) var recurrence: Recurrence?
     public internal(set) var extraLists: [TaskList] = []
@@ -335,6 +349,9 @@ public final class BoardViewModel {
         self.viewConfigRepository = ViewConfigRepository(database: database, clock: clock)
         self.activityRepository = ActivityRepository(database: database)
         self.workloadRepository = WorkloadRepository(database: database)
+        self.personalRepository = PersonalRepository(database: database, clock: clock)
+        self.docRepository = DocRepository(database: database, clock: clock)
+        self.whiteboardRepository = WhiteboardRepository(database: database, clock: clock)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -440,7 +457,7 @@ public final class BoardViewModel {
         return Set(found.map(\.id))
     }
 
-    private func loadSelectionDetails() {
+    func loadSelectionDetails() {
         guard let selectedTaskID else {
             checklist = []
             subtasks = []

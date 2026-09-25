@@ -40,6 +40,20 @@ struct CommentsSection: View {
     private func row(_ comment: Comment) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
+                // A request is ticked off where it was made. Moving it
+                // somewhere else would separate the ask from what was said
+                // around it, which is usually the part that explains it.
+                if comment.isActionItem {
+                    Button {
+                        model.setActionDone(!comment.actionDone, for: comment.id)
+                    } label: {
+                        Image(systemName: comment.actionDone ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(comment.actionDone ? Color.accentColor : .orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(comment.actionDone ? "Mark as not done" : "Mark as done")
+                }
+
                 Text(model.person(id: comment.authorID)?.name ?? "Someone")
                     .font(.caption.weight(.medium))
                 Text(comment.createdAt.formatted(date: .abbreviated, time: .shortened))
@@ -52,16 +66,39 @@ struct CommentsSection: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+                if comment.isActionItem, let assignee = model.person(id: comment.actionAssigneeID) {
+                    Label(assignee.name, systemImage: "person")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+
                 Spacer(minLength: 0)
             }
 
             Text(comment.bodyMarkdown)
                 .font(.callout)
                 .textSelection(.enabled)
+                .strikethrough(comment.actionDone)
+                .foregroundStyle(comment.actionDone ? .secondary : .primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
         .contextMenu {
+            if comment.isActionItem {
+                Button("Not a Request After All", systemImage: "checkmark.bubble") {
+                    model.setActionItem(false, assignee: nil, for: comment.id)
+                }
+            } else {
+                Menu("Make This a Request") {
+                    Button("Anybody") { model.setActionItem(true, assignee: nil, for: comment.id) }
+                    ForEach(model.people) { person in
+                        Button(person.name) {
+                            model.setActionItem(true, assignee: person.id, for: comment.id)
+                        }
+                    }
+                }
+            }
+
             Button("Edit…") {
                 editingBody = comment.bodyMarkdown
                 editingID = comment.id

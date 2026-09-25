@@ -151,7 +151,11 @@ public final class AppEnvironment {
         let tasks = board.snapshot?.columns.flatMap(\.tasks) ?? []
         let tags = Dictionary(tasks.map { ($0.id, board.tag(for: $0)) },
                               uniquingKeysWith: { first, _ in first })
-        Task { await reminders.reschedule(for: tasks, tags: tags) }
+        let standalone = board.reminders
+        Task {
+            await reminders.reschedule(for: tasks, tags: tags)
+            await reminders.reschedule(reminders: standalone)
+        }
     }
 
     public func checkForExternalChanges() {

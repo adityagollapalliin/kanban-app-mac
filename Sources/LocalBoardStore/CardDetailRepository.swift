@@ -9,7 +9,7 @@ import LocalBoardCore
 public struct CardDetailRepository {
 
     let database: Database
-    private let clock: any ClockProvider
+    let clock: any ClockProvider
     private let paths: ContainerPaths?
 
     /// `paths` is only needed for attachments, which have to live somewhere on
@@ -379,5 +379,72 @@ extension CardDetailRepository {
             personID: running.personID,
             workedOn: running.startedAt
         )
+    }
+}
+
+// MARK: - Comments that are asking for something
+
+extension CardDetailRepository {
+
+    /// Turns a remark into a request, or back.
+    ///
+    /// The comment keeps its words either way: an action item is the comment
+    /// with somebody's name against it, not a copy of it in a different list.
+    /// Un-marking one leaves the remark in the thread, because deleting what
+    /// somebody wrote because it stopped being a task would be startling.
+    public func setActionItem(
+        _ isAction: Bool, assignee personID: String?, for commentID: String
+    ) throws {
+        let changed = try database.execute(
+            """
+            UPDATE comment SET action_item = ?, action_assignee_id = ?,
+                               action_done = CASE WHEN ? THEN action_done ELSE 0 END,
+                               action_done_at = CASE WHEN ? THEN action_done_at ELSE NULL END
+            WHERE id = ?;
+            """,
+            [isAction, personID.sqlValue, isAction, isAction, commentID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "comment \(commentID)") }
+    }
+
+    public func setActionDone(_ done: Bool, for commentID: String) throws {
+        let changed = try database.execute(
+            "UPDATE comment SET action_done = ?, action_done_at = ? WHERE id = ? AND action_item = 1;",
+            [done, done ? clock.now.sqlValue : SQLValue.null, commentID]
+        )
+        guard changed > 0 else {
+            throw LocalBoardError.notFound(entity: "action item \(commentID)")
+        }
+    }
+
+    /// Every open action item in a project, for the list that shows what has
+    /// been asked of people in passing.
+    public func openActionItems(inProject projectID: String) throws -> [Comment] {
+        try database.query(
+            """
+            SELECT comment.* FROM comment
+            JOIN task ON task.id = comment.task_id
+            WHERE task.project_id = ? AND task.trashed = 0
+              AND comment.action_item = 1 AND comment.action_done = 0
+            ORDER BY comment.created_at;
+            """,
+            [projectID]
+        ).map(Comment.init(row:))
+    }
+
+    /// Action items asked of one person, which is what "my work" shows
+    /// alongside their cards.
+    public func actionItems(for personID: String, includeDone: Bool = false) throws -> [Comment] {
+        let done = includeDone ? "" : " AND comment.action_done = 0"
+        return try database.query(
+            """
+            SELECT comment.* FROM comment
+            JOIN task ON task.id = comment.task_id
+            WHERE comment.action_item = 1 AND comment.action_assignee_id = ?
+              AND task.trashed = 0\(done)
+            ORDER BY comment.created_at;
+            """,
+            [personID]
+        ).map(Comment.init(row:))
     }
 }

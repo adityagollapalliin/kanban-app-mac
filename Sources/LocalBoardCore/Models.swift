@@ -328,6 +328,13 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     /// When it was thrown away, which is not when it was last edited — the
     /// trashing itself moves `updatedAt`, so that column cannot answer this.
     public var trashedAt: Date?
+    /// Stop asking about this until then. Not the same as a due date: the
+    /// date is a promise to other people, a snooze is five minutes' peace.
+    public var snoozedUntil: Date?
+    /// The day somebody decided to do this. Also not a due date — a card due
+    /// next week that you are starting today belongs in today's list without
+    /// its deadline moving.
+    public var plannedFor: Date?
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
@@ -365,6 +372,8 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         listID: String? = nil,
         isMilestone: Bool = false,
         trashedAt: Date? = nil,
+        snoozedUntil: Date? = nil,
+        plannedFor: Date? = nil,
         createdAt: Date,
         updatedAt: Date,
         completedAt: Date? = nil
@@ -393,6 +402,8 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.listID = listID
         self.isMilestone = isMilestone
         self.trashedAt = trashedAt
+        self.snoozedUntil = snoozedUntil
+        self.plannedFor = plannedFor
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt
@@ -578,6 +589,14 @@ public struct Comment: Sendable, Equatable, Identifiable, Codable {
     /// Set when a comment is changed, so an edited remark says it was edited
     /// rather than quietly appearing always to have said this.
     public var editedAt: Date?
+    /// A remark and a request look the same in a thread until somebody has to
+    /// act on one. These are what tell them apart — and they are part of the
+    /// comment because an action item *is* the comment, not a thing pinned to
+    /// it.
+    public var isActionItem: Bool
+    public var actionAssigneeID: String?
+    public var actionDone: Bool
+    public var actionDoneAt: Date?
 
     public init(
         id: String,
@@ -585,7 +604,11 @@ public struct Comment: Sendable, Equatable, Identifiable, Codable {
         authorID: String?,
         bodyMarkdown: String,
         createdAt: Date,
-        editedAt: Date? = nil
+        editedAt: Date? = nil,
+        isActionItem: Bool = false,
+        actionAssigneeID: String? = nil,
+        actionDone: Bool = false,
+        actionDoneAt: Date? = nil
     ) {
         self.id = id
         self.taskID = taskID
@@ -593,6 +616,10 @@ public struct Comment: Sendable, Equatable, Identifiable, Codable {
         self.bodyMarkdown = bodyMarkdown
         self.createdAt = createdAt
         self.editedAt = editedAt
+        self.isActionItem = isActionItem
+        self.actionAssigneeID = actionAssigneeID
+        self.actionDone = actionDone
+        self.actionDoneAt = actionDoneAt
     }
 }
 

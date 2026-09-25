@@ -22,7 +22,7 @@ public struct Migration: Sendable, Equatable {
 extension Migration {
     /// The full ladder, in order. `Migration.latestVersion` is what a fresh
     /// database is stamped with.
-    public static let all: [Migration] = [.v1Foundation, .v2SavedViews, .v3JiraBoard, .v4CardDetail, .v5Agile, .v6Structure]
+    public static let all: [Migration] = [.v1Foundation, .v2SavedViews, .v3JiraBoard, .v4CardDetail, .v5Agile, .v6Structure, .v7Personal]
 
     public static var latestVersion: Int { all.map(\.version).max() ?? 0 }
 }

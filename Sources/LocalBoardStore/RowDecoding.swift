@@ -203,6 +203,8 @@ extension BoardTask {
             listID: row.string("list_id"),
             isMilestone: row.bool("is_milestone") ?? false,
             trashedAt: row.date("trashed_at"),
+            snoozedUntil: row.date("snoozed_until"),
+            plannedFor: row.date("planned_for"),
             createdAt: try row.requiredDate("created_at"),
             updatedAt: try row.requiredDate("updated_at"),
             completedAt: row.date("completed_at")
@@ -294,7 +296,11 @@ extension Comment {
             authorID: row.string("author_id"),
             bodyMarkdown: try row.requiredString("body_md"),
             createdAt: try row.requiredDate("created_at"),
-            editedAt: row.date("edited_at")
+            editedAt: row.date("edited_at"),
+            isActionItem: row.bool("action_item") ?? false,
+            actionAssigneeID: row.string("action_assignee_id"),
+            actionDone: row.bool("action_done") ?? false,
+            actionDoneAt: row.date("action_done_at")
         )
     }
 }
@@ -515,6 +521,76 @@ extension Shortcut {
             label: row.string("label") ?? "",
             sortOrder: try row.requiredDouble("sort_order"),
             at: try row.requiredDate("at")
+        )
+    }
+}
+
+// MARK: - Schema 7
+
+extension Reminder {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            title: try row.requiredString("title"),
+            notes: row.string("notes") ?? "",
+            dueAt: row.date("due_at"),
+            snoozedUntil: row.date("snoozed_until"),
+            completedAt: row.date("completed_at"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Doc {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: row.string("project_id"),
+            parentID: row.string("parent_id"),
+            title: try row.requiredString("title"),
+            icon: row.string("icon") ?? "",
+            bodyMarkdown: row.string("body_md") ?? "",
+            archived: row.bool("archived") ?? false,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at"),
+            updatedAt: try row.requiredDate("updated_at")
+        )
+    }
+}
+
+extension Whiteboard {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: row.string("project_id"),
+            name: try row.requiredString("name"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at"),
+            updatedAt: try row.requiredDate("updated_at")
+        )
+    }
+}
+
+extension WhiteboardItem {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            boardID: try row.requiredString("board_id"),
+            kind: try row.requiredEnum("kind", WhiteboardItemKind.self),
+            x: row.double("x") ?? 0,
+            y: row.double("y") ?? 0,
+            width: row.double("width") ?? 140,
+            height: row.double("height") ?? 100,
+            text: row.string("text") ?? "",
+            color: row.string("color") ?? "yellow",
+            shape: (try? row.requiredEnum("shape", WhiteboardShape.self)) ?? .rectangle,
+            strokeValues: WhiteboardItem.strokeValues(from: row.string("points") ?? ""),
+            fromItem: row.string("from_item"),
+            toItem: row.string("to_item"),
+            taskID: row.string("task_id"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
         )
     }
 }

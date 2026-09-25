@@ -50,6 +50,7 @@ struct TaskDetailView: View {
             subtasksSection
             notesSection
             LinksSection(task: task, model: model)
+            BacklinksSection(task: task, model: model)
             CommentsSection(task: task, model: model)
             AttachmentsSection(task: task, model: model)
             WorkLogSection(task: task, model: model)
@@ -396,8 +397,33 @@ struct TaskDetailView: View {
         }
     }
 
+    /// A snoozed card says when it comes back, because the whole point of a
+    /// snooze is that nothing else will remind you.
+    private var snoozeLabel: String {
+        guard let until = task.snoozedUntil, until > .now else { return "Snooze" }
+        return "Snoozed until \(until.formatted(date: .abbreviated, time: .shortened))"
+    }
+
     private var actionsSection: some View {
         Section {
+            // Setting a card aside is not closing it: the tray keeps several
+            // to hand at once without a window each.
+            Button("Set Aside in the Tray", systemImage: "tray.and.arrow.down") {
+                model.addToTray(task.id)
+            }
+
+            Menu {
+                ForEach(SnoozeOption.allCases, id: \.self) { option in
+                    Button(option.label) { model.snooze(task.id, option) }
+                }
+                if task.snoozedUntil != nil {
+                    Divider()
+                    Button("Wake It Now") { model.wake(task.id) }
+                }
+            } label: {
+                Label(snoozeLabel, systemImage: "zzz")
+            }
+
             if task.trashed {
                 Button("Put Back", systemImage: "arrow.uturn.backward") {
                     model.restore(task.id)
