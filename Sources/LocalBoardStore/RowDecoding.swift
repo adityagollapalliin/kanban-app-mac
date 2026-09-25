@@ -101,7 +101,9 @@ extension Status {
             projectID: try row.requiredString("project_id"),
             name: try row.requiredString("name"),
             category: try row.requiredEnum("category", StatusCategory.self),
-            sortOrder: try row.requiredDouble("sort_order")
+            sortOrder: try row.requiredDouble("sort_order"),
+            diagramX: row.double("diagram_x") ?? 0,
+            diagramY: row.double("diagram_y") ?? 0
         )
     }
 }
@@ -578,7 +580,11 @@ extension WorkflowTransition {
             id: try row.requiredString("id"),
             projectID: try row.requiredString("project_id"),
             fromStatusID: try row.requiredString("from_status_id"),
-            toStatusID: try row.requiredString("to_status_id")
+            toStatusID: try row.requiredString("to_status_id"),
+            name: row.string("name") ?? "",
+            screenFields: WorkflowTransition.fields(from: row.string("screen_fields") ?? ""),
+            screenTitle: row.string("screen_title") ?? "",
+            sortOrder: row.double("sort_order") ?? 1_000
         )
     }
 }

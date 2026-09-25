@@ -174,10 +174,10 @@ public struct TransitionRuleRepository {
                 guard !rule.value.isEmpty else { continue }
                 try database.execute(
                     """
-                    INSERT INTO comment (id, task_id, author_id, body_md, created_at, updated_at)
-                    VALUES (?, ?, NULL, ?, ?, ?);
+                    INSERT INTO comment (id, task_id, author_id, body_md, created_at)
+                    VALUES (?, ?, NULL, ?, ?);
                     """,
-                    [UUID().uuidString, taskID, rule.value, clock.now, clock.now]
+                    [UUID().uuidString, taskID, rule.value, clock.now]
                 )
 
             case .setField:

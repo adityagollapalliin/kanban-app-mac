@@ -203,6 +203,8 @@ public final class BoardViewModel {
     let timeRepository: TimeRepository
     let vocabularyRepository: VocabularyRepository
     let componentRepository: ComponentRepository
+    let transitionRuleRepository: TransitionRuleRepository
+    let fieldConfigRepository: FieldConfigRepository
 
     /// The project's own fields, and what every card on the board has put in
     /// them — gathered in one query rather than one per card.
@@ -227,6 +229,10 @@ public final class BoardViewModel {
     public internal(set) var resolutions: [Resolution] = []
     public internal(set) var components: [Component] = []
     public internal(set) var componentsByTask: [String: [Component]] = [:]
+
+    /// The rules on each transition, and what each kind of card asks for.
+    public internal(set) var transitionRules: [String: [TransitionRule]] = [:]
+    public internal(set) var fieldConfigs: [Int: [FieldConfiguration]] = [:]
 
     /// Bumped whenever a dashboard's widgets or the time log change.
     ///
@@ -394,6 +400,8 @@ public final class BoardViewModel {
         self.timeRepository = TimeRepository(database: database, clock: clock)
         self.vocabularyRepository = VocabularyRepository(database: database, clock: clock)
         self.componentRepository = ComponentRepository(database: database, clock: clock)
+        self.transitionRuleRepository = TransitionRuleRepository(database: database, clock: clock)
+        self.fieldConfigRepository = FieldConfigRepository(database: database, clock: clock)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -463,6 +471,8 @@ public final class BoardViewModel {
                 resolutions = try vocabularyRepository.resolutions(inProject: projectID)
                 components = try componentRepository.components(inProject: projectID)
                 componentsByTask = try componentRepository.componentsByTask(inProject: projectID)
+                transitionRules = try transitionRuleRepository.rulesByTransition(inProject: projectID)
+                fieldConfigs = try fieldConfigRepository.configurationsByType(inProject: projectID)
                 sprints = try sprintRepository.sprints(inProject: projectID)
                 activeSprint = try sprintRepository.activeSprint(inProject: projectID)
                 automations = try automationRepository.automations(inProject: projectID)

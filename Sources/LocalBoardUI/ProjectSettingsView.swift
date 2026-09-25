@@ -24,6 +24,8 @@ struct ProjectSettingsView: View {
                 .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
             ComponentsPane(model: model)
                 .tabItem { Label("Components", systemImage: "square.stack.3d.up") }
+            FieldConfigPane(model: model)
+                .tabItem { Label("Per Kind", systemImage: "slider.horizontal.3") }
             TemplatesPane(model: model)
                 .tabItem { Label("Templates", systemImage: "doc.on.doc") }
         }
@@ -944,6 +946,118 @@ private struct ComponentsPane: View {
                 }
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+        }
+        .padding(16)
+    }
+}
+
+// MARK: - Fields, per kind of card
+
+/// Which fields each kind of card shows, insists on, and starts with.
+///
+/// A bug that always asks for an environment and a chore that never does are
+/// the same card table asked different questions. Everything here is a
+/// *departure* from the default, so a project that never opens this pane
+/// behaves exactly as it always has.
+private struct FieldConfigPane: View {
+    let model: BoardViewModel
+
+    @State private var selectedType: Int?
+
+    private var code: Int { selectedType ?? model.issueTypes.first?.code ?? 2 }
+
+    /// The built-in fields, then the project's own.
+    private var fields: [(reference: FieldReference, name: String)] {
+        FieldReference.builtInNames.map {
+            (FieldReference.builtIn($0), $0.prefix(1).uppercased() + $0.dropFirst())
+        }
+        + model.customFields.map { (FieldReference.custom($0.id), $0.name) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Kind of card", selection: Binding(
+                get: { code },
+                set: { selectedType = $0 }
+            )) {
+                ForEach(model.issueTypes) { type in
+                    Label(type.name, systemImage: type.symbol.isEmpty ? "square" : type.symbol)
+                        .tag(type.code)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text("A field that is not shown is hidden on cards of this kind. A required one is reported as missing until it is filled in — when the card is saved, not when it is created, because a card is usually made from a title alone and filled in afterwards.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                GridRow {
+                    Text("Field").font(.caption.weight(.semibold))
+                    Text("Show").font(.caption.weight(.semibold))
+                    Text("Require").font(.caption.weight(.semibold))
+                    Text("Starts as").font(.caption.weight(.semibold))
+                }
+                Divider().gridCellUnsizedAxes(.horizontal)
+
+                ForEach(fields, id: \.reference) { entry in
+                    let configuration = model.fieldConfiguration(forType: code, field: entry.reference)
+                    let shown = configuration?.shown ?? true
+                    let required = configuration?.required ?? false
+
+                    GridRow {
+                        Text(entry.name).font(.callout)
+
+                        Toggle("", isOn: Binding(
+                            get: { shown },
+                            set: { on in
+                                model.setFieldConfiguration(
+                                    forType: code, field: entry.reference,
+                                    shown: on,
+                                    // A hidden field cannot be required, so
+                                    // hiding one drops the requirement rather
+                                    // than being refused.
+                                    required: on ? required : false,
+                                    defaultValue: configuration?.defaultValue ?? ""
+                                )
+                            }
+                        ))
+                        .labelsHidden()
+
+                        Toggle("", isOn: Binding(
+                            get: { required },
+                            set: { on in
+                                model.setFieldConfiguration(
+                                    forType: code, field: entry.reference,
+                                    shown: shown, required: on,
+                                    defaultValue: configuration?.defaultValue ?? ""
+                                )
+                            }
+                        ))
+                        .labelsHidden()
+                        .disabled(!shown)
+
+                        TextField("", text: Binding(
+                            get: { configuration?.defaultValue ?? "" },
+                            set: { typed in
+                                model.setFieldConfiguration(
+                                    forType: code, field: entry.reference,
+                                    shown: shown, required: required, defaultValue: typed
+                                )
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 130)
+                    }
+                }
+            }
+
+            Text("A date can start as `+7d` or `today`, read the same way the search field reads one.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Spacer()
         }
         .padding(16)
     }

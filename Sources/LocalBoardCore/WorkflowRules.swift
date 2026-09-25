@@ -11,7 +11,7 @@ import Foundation
 ///   missing, so a move that fails one is offered, attempted, and refused with
 ///   a reason;
 /// * a **post-function** happens afterwards and cannot refuse anything.
-public enum TransitionPhase: Int, Sendable, CaseIterable, Codable {
+public enum TransitionRulePhase: Int, Sendable, CaseIterable, Codable {
     case condition = 0
     case validator = 1
     case postFunction = 2
@@ -73,7 +73,7 @@ public enum TransitionRuleKind: Int, Sendable, CaseIterable, Codable {
     /// Give it a resolution. `target` is the resolution's id.
     case setResolution = 24
 
-    public var phase: TransitionPhase {
+    public var phase: TransitionRulePhase {
         switch rawValue {
         case 0..<10: .condition
         case 10..<20: .validator
@@ -115,7 +115,7 @@ public enum TransitionRuleKind: Int, Sendable, CaseIterable, Codable {
 
     public var needsQuery: Bool { self == .matchesQuery }
 
-    public static func kinds(in phase: TransitionPhase) -> [TransitionRuleKind] {
+    public static func kinds(in phase: TransitionRulePhase) -> [TransitionRuleKind] {
         allCases.filter { $0.phase == phase }
     }
 }
@@ -133,7 +133,7 @@ public struct TransitionRule: Sendable, Equatable, Identifiable, Codable {
     public var sortOrder: Double
     public var createdAt: Date
 
-    public var phase: TransitionPhase { kind.phase }
+    public var phase: TransitionRulePhase { kind.phase }
 
     public init(
         id: String,

@@ -6,6 +6,51 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 11
+
+### Milestone 8.5c: what a move has to satisfy
+- **The workflow is a diagram**: columns as nodes, allowed moves as arrows.
+  Drag from a column's edge to another to allow a move; drag from its middle to
+  move it. Positions are remembered, because an automatic layout of the same
+  graph rearranges everything whenever one status is added, and a diagram that
+  rearranges itself is one nobody can learn.
+- **A transition gains three kinds of rule**, each consulted at a different
+  moment. A **condition** decides whether the move is offered at all, so one
+  that fails simply is not there. A **validator** decides whether it may
+  complete, and every failing one is reported together — being told you need a
+  resolution, then once you have chosen one that you also need an estimate, is
+  how a workflow earns its reputation. A **post-function** runs after the move
+  is written, never before, so nothing is left behind on a move that was
+  refused.
+- **Transitions can stop and ask.** A move can prompt for the fields it needs
+  rather than letting a card through half-filled.
+- **Fields per kind of card**: which show, which are insisted on, and what they
+  start as. A bug that always asks for an environment and a chore that never
+  does are the same card table asked different questions. Everything here is a
+  departure from the default, so a project that never opens the pane notices
+  nothing — and a hidden field cannot also be required, because there would be
+  no way to fill it in.
+- **Priorities are compared by rank**, not by the number they are stored under.
+  Those are the same for every scale the app seeds and stop being the same the
+  moment a step is inserted in the middle, where code 5 ranked 3 would have
+  sorted above Highest.
+
+### Fixed
+- **The starter project — what every new file gets — was never given a
+  vocabulary.** It is a second creation path alongside `createProject`, and
+  only the latter had been updated in 8.5a. The swimlane watching
+  `priority >= highest` silently matched nothing. A parity test now asserts all
+  three ways a project comes into being agree.
+- A third archive payload type, `Status`, had a synthesised decoder and would
+  have made every exported file unreadable when columns gained a place on the
+  workflow diagram. The test written in 8.5b caught it the same day.
+- Arrows between stacked columns all but vanished: the line was inset from each
+  node by a fixed radius, which is only right for a square. It now meets the
+  real edge of the rectangle.
+- The two labels of an A→B/B→A pair printed on top of each other. A
+  perpendicular offset cannot separate labels wider than the offset, so each
+  now also slides towards its own end of the curve.
+
 ## Unreleased — schema 10
 
 ### Milestone 8.5b: a second filter language, and a column saying which one

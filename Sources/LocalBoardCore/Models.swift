@@ -102,14 +102,47 @@ public struct Status: Sendable, Equatable, Identifiable, Codable {
     public var name: String
     public var category: StatusCategory
     public var sortOrder: Double
+    /// Where this column sits on the workflow diagram. Both zero means it has
+    /// never been positioned, and the editor lays those out in a row.
+    public var diagramX: Double
+    public var diagramY: Double
 
-    public init(id: String, projectID: String, name: String, category: StatusCategory, sortOrder: Double) {
+    public var isPositioned: Bool { diagramX != 0 || diagramY != 0 }
+
+    public init(
+        id: String,
+        projectID: String,
+        name: String,
+        category: StatusCategory,
+        sortOrder: Double,
+        diagramX: Double = 0,
+        diagramY: Double = 0
+    ) {
         self.id = id
         self.projectID = projectID
         self.name = name
         self.category = category
         self.sortOrder = sortOrder
+        self.diagramX = diagramX
+        self.diagramY = diagramY
     }
+    /// An archive written before a card's column had a place on the workflow
+    /// diagram has no coordinates for it. Nought means "never positioned",
+    /// which is what an old file's columns were.
+    ///
+    /// The third type to need this: see `BoardTask` for why the archive's
+    /// payload types cannot use a synthesised decoder.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        name = try container.decode(String.self, forKey: .name)
+        category = try container.decodeIfPresent(StatusCategory.self, forKey: .category) ?? .toDo
+        sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder) ?? 1_000
+        diagramX = try container.decodeIfPresent(Double.self, forKey: .diagramX) ?? 0
+        diagramY = try container.decodeIfPresent(Double.self, forKey: .diagramY) ?? 0
+    }
+
 }
 
 public struct Board: Sendable, Equatable, Identifiable, Codable {
@@ -1045,12 +1078,44 @@ public struct WorkflowTransition: Sendable, Equatable, Identifiable, Codable {
     public var projectID: String
     public var fromStatusID: String
     public var toStatusID: String
+    /// What the move is called. A button saying "Start work" is worth more
+    /// than one saying "In Progress". Empty falls back to the column's name.
+    public var name: String
+    /// Fields to prompt for when the move is made, one reference per line.
+    /// Empty means no prompt, which is what every transition did before.
+    public var screenFields: [FieldReference]
+    public var screenTitle: String
+    public var sortOrder: Double
 
-    public init(id: String, projectID: String, fromStatusID: String, toStatusID: String) {
+    public init(
+        id: String,
+        projectID: String,
+        fromStatusID: String,
+        toStatusID: String,
+        name: String = "",
+        screenFields: [FieldReference] = [],
+        screenTitle: String = "",
+        sortOrder: Double = 1_000
+    ) {
         self.id = id
         self.projectID = projectID
         self.fromStatusID = fromStatusID
         self.toStatusID = toStatusID
+        self.name = name
+        self.screenFields = screenFields
+        self.screenTitle = screenTitle
+        self.sortOrder = sortOrder
+    }
+
+    /// Whether this move stops to ask for anything.
+    public var hasScreen: Bool { !screenFields.isEmpty }
+
+    public static func storedFields(_ fields: [FieldReference]) -> String {
+        fields.map(\.stored).joined(separator: "\n")
+    }
+
+    public static func fields(from stored: String) -> [FieldReference] {
+        stored.split(separator: "\n").map { FieldReference(stored: String($0)) }
     }
 }
 

@@ -53,6 +53,36 @@ public struct WorkflowRepository {
         )
     }
 
+    /// Names a move, and says what it should stop to ask for.
+    public func update(
+        _ transitionID: String,
+        name: String,
+        screenTitle: String,
+        screenFields: [FieldReference]
+    ) throws {
+        let changed = try database.execute(
+            """
+            UPDATE workflow_transition SET name = ?, screen_title = ?, screen_fields = ?
+            WHERE id = ?;
+            """,
+            [name.trimmingCharacters(in: .whitespacesAndNewlines),
+             screenTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+             WorkflowTransition.storedFields(screenFields), transitionID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "transition \(transitionID)") }
+    }
+
+    /// Where a column sits on the workflow diagram.
+    ///
+    /// Remembered rather than laid out automatically: an automatic layout of
+    /// the same graph moves everything whenever one status is added, and a
+    /// diagram that rearranges itself is one nobody can learn.
+    public func setDiagramPosition(x: Double, y: Double, forStatus statusID: String) throws {
+        try database.execute(
+            "UPDATE status SET diagram_x = ?, diagram_y = ? WHERE id = ?;", [x, y, statusID]
+        )
+    }
+
     public func setEnforced(_ enforced: Bool, inProject projectID: String) throws {
         let changed = try database.execute(
             "UPDATE project SET enforce_workflow = ? WHERE id = ?;", [enforced, projectID]

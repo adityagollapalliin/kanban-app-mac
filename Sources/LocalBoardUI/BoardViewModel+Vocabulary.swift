@@ -285,4 +285,81 @@ extension BoardViewModel {
             return error.localizedDescription
         }
     }
+
+    // MARK: - Workflow rules
+
+    public func updateTransition(
+        _ transitionID: String,
+        name: String,
+        screenTitle: String,
+        screenFields: [FieldReference]
+    ) {
+        perform {
+            try workflowRepository.update(
+                transitionID, name: name, screenTitle: screenTitle, screenFields: screenFields
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func setDiagramPosition(x: Double, y: Double, forStatus statusID: String) {
+        perform {
+            try workflowRepository.setDiagramPosition(x: x, y: y, forStatus: statusID)
+        }
+    }
+
+    public func addTransitionRule(
+        _ kind: TransitionRuleKind,
+        to transitionID: String,
+        target: String,
+        value: String,
+        query: String,
+        syntax: QuerySyntax
+    ) {
+        perform {
+            try transitionRuleRepository.add(
+                kind, toTransition: transitionID, target: target,
+                value: value, query: query, syntax: syntax
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func removeTransitionRule(_ ruleID: String) {
+        perform {
+            try transitionRuleRepository.remove(ruleID)
+            reloadSnapshot()
+        }
+    }
+
+    /// Whether a move should be offered for this card, given its conditions.
+    public func isOffered(_ transition: WorkflowTransition, for task: BoardTask) -> Bool {
+        (try? transitionRuleRepository.isOffered(transition.id, forTask: task.id)) ?? true
+    }
+
+    /// Which fields a kind of card insists on and has not got.
+    public func missingRequired(for task: BoardTask) -> [String] {
+        (try? fieldConfigRepository.missingRequired(forTask: task.id)) ?? []
+    }
+
+    public func setFieldConfiguration(
+        forType code: Int,
+        field: FieldReference,
+        shown: Bool,
+        required: Bool,
+        defaultValue: String
+    ) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try fieldConfigRepository.set(
+                inProject: projectID, forType: code, field: field,
+                shown: shown, required: required, defaultValue: defaultValue
+            )
+            reloadSnapshot()
+        }
+    }
+
+    public func fieldConfiguration(forType code: Int, field: FieldReference) -> FieldConfiguration? {
+        fieldConfigs[code]?.first { $0.field == field }
+    }
 }
