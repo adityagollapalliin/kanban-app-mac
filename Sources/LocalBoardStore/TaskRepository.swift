@@ -281,6 +281,7 @@ public struct TaskRepository {
             // to it; an allowed-transition list exists precisely so that some
             // moves are impossible, and a rule that only tutted would not be
             // that.
+            var transitionID: String?
             if moving.statusID != statusID {
                 let workflow = WorkflowRepository(database: database, clock: clock)
                 guard try workflow.permits(
@@ -291,6 +292,31 @@ public struct TaskRepository {
                         detail: "\(try name(ofStatus: moving.statusID)) does not lead to "
                               + "\(try name(ofStatus: statusID)) in this project."
                     )
+                }
+
+                // The rules on this particular move, if it is one the project
+                // has described. Validators refuse; post-functions run once
+                // the move is written, below.
+                //
+                // Only *future* moves are affected: nothing here looks at a
+                // card's past, so adding a validator today cannot retroactively
+                // make yesterday's card invalid.
+                transitionID = try database.queryOne(
+                    """
+                    SELECT id FROM workflow_transition
+                    WHERE project_id = ? AND from_status_id = ? AND to_status_id = ?;
+                    """,
+                    [moving.projectID, moving.statusID, statusID]
+                )?.string("id")
+
+                if let transitionID {
+                    let rules = TransitionRuleRepository(database: database, clock: clock)
+                    if let refusal = try rules.refusal(
+                        transitionID, forTask: taskID,
+                        transitionName: try name(ofStatus: statusID)
+                    ) {
+                        throw LocalBoardError.invalidInput(field: "status", detail: refusal.message)
+                    }
                 }
             }
 
@@ -341,6 +367,14 @@ public struct TaskRepository {
                 // last column is called "Shipped" works the same.
                 try ComponentRepository(database: database, clock: clock)
                     .reconcileResolution(forTask: taskID)
+
+                // After the move is written, never before: a post-function
+                // cannot refuse anything, and one that ran first would leave
+                // its changes behind on a move that was then rejected.
+                if let transitionID {
+                    try TransitionRuleRepository(database: database, clock: clock)
+                        .runPostFunctions(transitionID, forTask: taskID)
+                }
 
                 // A card that recurs on completion produces its next one here,
                 // where "finished" actually happens — not on a timer that

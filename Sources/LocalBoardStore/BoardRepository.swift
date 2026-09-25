@@ -330,6 +330,13 @@ public struct BoardRepository {
             [boardID, projectID, "Board", SortOrder.step, now]
         )
 
+        // The kinds of card, the priority scale, the link pairs and the
+        // resolutions. The starter project is a second way a project comes
+        // into being, alongside `createProject`, and both have to seed the
+        // same vocabulary — a project without a priority scale has nothing for
+        // `priority >= high` to compare against.
+        try VocabularyRepository(database: database).seedDefaults(forProject: projectID, createdAt: now)
+
         // The three columns every Kanban board starts with. The categories are
         // what make "done" mean something to the rest of the app.
         let starters: [(name: String, category: StatusCategory)] = [

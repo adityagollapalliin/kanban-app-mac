@@ -386,6 +386,37 @@ extension CustomField {
     }
 }
 
+extension TransitionRule {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            transitionID: try row.requiredString("transition_id"),
+            kind: try row.requiredEnum("kind", TransitionRuleKind.self),
+            target: row.string("target") ?? "",
+            value: row.string("value") ?? "",
+            query: row.string("query") ?? "",
+            syntax: QuerySyntax.named(row.string("syntax")),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension FieldConfiguration {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            issueTypeCode: try row.requiredInt("issue_type_code"),
+            field: FieldReference(stored: try row.requiredString("field_ref")),
+            shown: row.bool("shown") ?? true,
+            required: row.bool("required") ?? false,
+            defaultValue: row.string("default_value") ?? "",
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
 extension IssueType {
     init(row: Row) throws {
         self.init(

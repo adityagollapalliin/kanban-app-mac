@@ -530,8 +530,28 @@ struct TaskQueryCompiler {
             guard case .priority(let priority) = value else {
                 throw QueryError("`priority` takes lowest, low, normal, high or highest.")
             }
+            // Compared by *rank*, not by the stored code.
+            //
+            // They are the same for every scale the app seeds, which is why
+            // this compiled to a plain integer comparison until now. They stop
+            // being the same the moment a project inserts a step in the middle
+            // — code 5 ranked 2 — and a comparison against the code would then
+            // put a new "Medium-high" below "Lowest".
+            //
+            // A project that has not touched its scale compiles to the same
+            // rows as before; the SQL is longer because it asks the scale
+            // rather than assuming it.
+            // Bound in the order the placeholders appear: the outer scope's
+            // project, then the inner lookup's project, then the code.
+            parameters.append(.text(projectID))
+            parameters.append(.text(projectID))
             parameters.append(.integer(Int64(priority.rawValue)))
-            return "task.priority \(Self.sqlOperator(comparison)) ?"
+            return """
+                task.priority IN (
+                    SELECT code FROM priority_value WHERE project_id = ?
+                      AND rank \(Self.sqlOperator(comparison)) (
+                        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))
+                """
 
         case .type:
             guard case .type(let type) = value else {

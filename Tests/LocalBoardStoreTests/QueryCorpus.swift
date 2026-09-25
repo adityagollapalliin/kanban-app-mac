@@ -21,6 +21,19 @@ import LocalBoardCore
 /// accepted — that is what "superset" means — but doing so requires moving its
 /// baseline entry by hand in the same commit, so every extension leaves a
 /// visible record of exactly which previously-invalid text became valid.
+///
+/// ## The baseline has been re-recorded once
+///
+/// **Milestone 8.5c, priority ranks.** `priority >= high` compiled to
+/// `task.priority >= 3` — a comparison against the stored code. That is only
+/// correct while every rank equals its code, which is true of every scale the
+/// app seeds and stops being true the moment a project inserts a step in the
+/// middle: code 5 ranked 3 would have sorted above Highest.
+///
+/// It now asks the project's scale. Six of the 101 entries changed SQL and
+/// every one is a priority comparison; the other 95 are untouched. That the
+/// *results* are unchanged for a seeded scale is asserted card by card in
+/// `PriorityRankTests`, which was written before the baseline was moved.
 enum QueryCorpus {
 
     /// Where the corpus came from, so a reader can tell a real saved filter

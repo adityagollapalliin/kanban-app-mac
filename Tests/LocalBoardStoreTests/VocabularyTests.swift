@@ -381,3 +381,119 @@ struct ComponentTests {
         #expect(try tasks.task(id: card.id).versionID == nil)
     }
 }
+
+@Suite("Every way a project comes into being agrees")
+struct ProjectCreationParityTests {
+
+    /// There are three: the v9 migration, `createProject`, and the starter
+    /// content a brand-new file is given. All three must seed the same
+    /// vocabulary under the same numbers, or a card moved between two spaces
+    /// would change kind — and `priority >= high` would have nothing to
+    /// compare against in one of them.
+    ///
+    /// This was not hypothetical: the starter project was missed, and the
+    /// swimlane that watches `priority >= highest` silently matched nothing.
+    @Test("A starter project and a made one have the same vocabulary")
+    func creationPathsAgree() throws {
+        let clock = StoppedClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let database = try Database(location: .memory)
+        try database.migrate()
+
+        // The starter path: what a brand-new file gets.
+        let boards = BoardRepository(database: database, clock: clock)
+        let starter = try #require(try boards.ensureStarterContent())
+
+        // The made path.
+        let made = try boards.createProject(
+            inWorkspace: try #require(database.queryOne("SELECT id FROM workspace;")?.string("id")),
+            name: "Second", key: "SEC"
+        )
+
+        let vocabulary = VocabularyRepository(database: database, clock: clock)
+        for project in [starter.projectID, made.id] {
+            #expect(try vocabulary.issueTypes(inProject: project).map(\.code) == [0, 1, 2, 3])
+            #expect(try vocabulary.priorities(inProject: project).count == 5)
+            #expect(PriorityValue.ranksMatchCodes(try vocabulary.priorities(inProject: project)))
+            #expect(try vocabulary.linkTypes(inProject: project).count == 3)
+            #expect(try vocabulary.defaultResolution(inProject: project)?.name == "Done")
+        }
+    }
+}
+
+@Suite("Priority comparisons read the project's own scale")
+struct PriorityRankTests {
+
+    /// The change that broke the query baseline deliberately: `priority >=
+    /// high` used to compare the stored code and now compares the rank.
+    ///
+    /// For every scale the app seeds the two are identical — which is what
+    /// this asserts, card by card, before the baseline was re-recorded.
+    @Test("A seeded scale returns exactly the cards it always did")
+    func seededScaleIsUnchanged() throws {
+        let (database, clock, ids) = try fixture()
+        let tasks = TaskRepository(database: database, clock: clock)
+
+        var made: [Priority: String] = [:]
+        for priority in Priority.allCases {
+            let card = try tasks.create(
+                inProject: ids.project, statusID: ids.toDo,
+                title: "A \(priority) card", priority: priority
+            )
+            made[priority] = card.id
+        }
+
+        func run(_ source: String) throws -> Set<String> {
+            Set(try tasks.tasks(matching: source, inProject: ids.project).map(\.id))
+        }
+
+        #expect(try run("priority >= high") == Set([made[.high], made[.highest]].compactMap { $0 }))
+        #expect(try run("priority > high") == Set([made[.highest]].compactMap { $0 }))
+        #expect(try run("priority = normal") == Set([made[.normal]].compactMap { $0 }))
+        #expect(try run("priority < normal") == Set([made[.lowest], made[.low]].compactMap { $0 }))
+        #expect(try run("priority != normal").count == 4)
+    }
+
+    /// And the reason the change was worth making: a scale whose ranks no
+    /// longer match its codes.
+    @Test("A step inserted in the middle sorts where its rank says, not where its number does")
+    func insertedStepUsesRank() throws {
+        let (database, clock, ids) = try fixture()
+        let tasks = TaskRepository(database: database, clock: clock)
+
+        // "Medium-high" gets code 5 because that is the next free number, and
+        // rank 3 because that is where it belongs — between Normal and High.
+        // Everything at rank 3 and above shifts up.
+        try database.execute(
+            """
+            UPDATE priority_value SET rank = rank + 1
+            WHERE project_id = ? AND rank >= 3;
+            """,
+            [ids.project]
+        )
+        try database.execute(
+            """
+            INSERT INTO priority_value (project_id, code, name, rank, symbol, color, sort_order)
+            VALUES (?, 5, 'Medium-high', 3, 'chevron.up', 'orange', 3500.0);
+            """,
+            [ids.project]
+        )
+
+        let normal = try tasks.create(
+            inProject: ids.project, statusID: ids.toDo, title: "Normal", priority: .normal
+        )
+        let high = try tasks.create(
+            inProject: ids.project, statusID: ids.toDo, title: "High", priority: .high
+        )
+        let middle = try tasks.create(inProject: ids.project, statusID: ids.toDo, title: "Medium-high")
+        try database.execute("UPDATE task SET priority = 5 WHERE id = ?;", [middle.id])
+
+        let found = Set(try tasks.tasks(matching: "priority >= high", inProject: ids.project).map(\.id))
+
+        // The new step is below High, so it is not included — even though its
+        // code, 5, is the largest number on the board. Comparing codes would
+        // have put it at the top.
+        #expect(found.contains(high.id))
+        #expect(!found.contains(middle.id))
+        #expect(!found.contains(normal.id))
+    }
+}

@@ -25,11 +25,13 @@
   },
   {
     "parameters" : [
+      "text:pr-1",
+      "text:pr-1",
       "int:4"
     ],
     "query" : "priority >= highest",
     "source" : "live",
-    "sql" : "task.priority >= ?"
+    "sql" : "task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank >= (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))"
   },
   {
     "parameters" : [
@@ -180,11 +182,13 @@
   },
   {
     "parameters" : [
+      "text:pr-1",
+      "text:pr-1",
       "int:3"
     ],
     "query" : "priority >= high",
     "source" : "tests",
-    "sql" : "task.priority >= ?"
+    "sql" : "task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank >= (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))"
   },
   {
     "parameters" : [
@@ -204,11 +208,13 @@
   },
   {
     "parameters" : [
+      "text:pr-1",
+      "text:pr-1",
       "int:4"
     ],
     "query" : "priority:highest",
     "source" : "tests",
-    "sql" : "task.priority = ?"
+    "sql" : "task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank = (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))"
   },
   {
     "parameters" : [
@@ -618,11 +624,13 @@
   {
     "parameters" : [
       "real:1779926400.0",
+      "text:pr-1",
+      "text:pr-1",
       "int:3"
     ],
     "query" : "(due < today) (priority >= high)",
     "source" : "coverage",
-    "sql" : "(task.due_date < ? AND task.priority >= ?)"
+    "sql" : "(task.due_date < ? AND task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank >= (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?)))"
   },
   {
     "parameters" : [
@@ -643,11 +651,13 @@
   },
   {
     "parameters" : [
+      "text:pr-1",
+      "text:pr-1",
       "int:3"
     ],
     "query" : "Priority >= High",
     "source" : "coverage",
-    "sql" : "task.priority >= ?"
+    "sql" : "task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank >= (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))"
   },
   {
     "parameters" : [
@@ -667,11 +677,13 @@
   },
   {
     "parameters" : [
+      "text:pr-1",
+      "text:pr-1",
       "int:3"
     ],
     "query" : "priority>=high",
     "source" : "coverage",
-    "sql" : "task.priority >= ?"
+    "sql" : "task.priority IN (\n    SELECT code FROM priority_value WHERE project_id = ?\n      AND rank >= (\n        SELECT rank FROM priority_value WHERE project_id = ? AND code = ?))"
   },
   {
     "parameters" : [
