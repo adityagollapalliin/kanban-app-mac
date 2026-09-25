@@ -22,7 +22,7 @@ public struct Migration: Sendable, Equatable {
 extension Migration {
     /// The full ladder, in order. `Migration.latestVersion` is what a fresh
     /// database is stamped with.
-    public static let all: [Migration] = [.v1Foundation, .v2SavedViews, .v3JiraBoard, .v4CardDetail, .v5Agile, .v6Structure, .v7Personal, .v8Goals]
+    public static let all: [Migration] = [.v1Foundation, .v2SavedViews, .v3JiraBoard, .v4CardDetail, .v5Agile, .v6Structure, .v7Personal, .v8Goals, .v9Vocabulary]
 
     public static var latestVersion: Int { all.map(\.version).max() ?? 0 }
 }
@@ -48,6 +48,35 @@ extension Database {
         guard current < target else { return }
 
         Log.migration.info("Migrating database from version \(current, privacy: .public) to \(target, privacy: .public).")
+
+        // A copy of the file as it stands, before a single statement runs.
+        //
+        // Each rung already runs in its own transaction, so a failure leaves
+        // the file at the last version that fully applied rather than
+        // half-upgraded. That is recoverable but not reversible: once v9 is
+        // written there is no way back to v8, and a migration wrong in a way
+        // the tests did not catch has already eaten the only copy.
+        //
+        // A backup that cannot be written **stops the migration**. Upgrading
+        // anyway would be deciding on the user's behalf that their data is
+        // worth less than the upgrade.
+        //
+        // Version 0 is skipped: that is a database being created, and an empty
+        // file is not something anybody needs a copy of.
+        if current > 0, case .file(let file) = location {
+            do {
+                let backup = MigrationBackup(directory: MigrationBackup.directory(forDatabaseAt: file))
+                if let written = try backup.write(from: self, version: current) {
+                    Log.migration.info("Backed up version \(current, privacy: .public) before upgrading.")
+                    _ = written
+                }
+            } catch {
+                throw LocalBoardError.migrationFailed(
+                    version: current,
+                    detail: "The database could not be backed up before upgrading, so nothing was changed. \(error.localizedDescription)"
+                )
+            }
+        }
 
         for migration in ordered where migration.version > current {
             do {

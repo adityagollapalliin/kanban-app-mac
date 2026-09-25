@@ -89,8 +89,32 @@ public final class Database: @unchecked Sendable {
     }
 
     deinit {
+        // The same guard `close()` uses, and for a sharper reason: closing a
+        // connection twice is a use-after-free inside SQLite, and a corrupted
+        // SQLite allocator does not fail where it was corrupted. It surfaces
+        // as SQLITE_MISUSE on an unrelated connection some time later, which
+        // is precisely how this was found — as an intermittent failure in a
+        // migration test that had nothing to do with the database that was
+        // closed twice.
+        //
+        // Anything that calls `close()` explicitly — the CLI, the app on
+        // teardown, every test that opens a file — was closing twice.
+        guard isOpen else { return }
         statementCache.removeAll()
         sqlite3_close_v2(handle)
+    }
+
+    /// Refuses work on a connection that has been closed.
+    ///
+    /// Without this, every path below would hand a freed handle to SQLite and
+    /// rely on it happening to return an error rather than reading freed
+    /// memory. "Usually returns SQLITE_MISUSE" is not a contract.
+    private func requireOpen() throws {
+        guard isOpen else {
+            throw LocalBoardError.databaseQueryFailed(
+                detail: "The database has been closed."
+            )
+        }
     }
 
     public func close() {
@@ -102,20 +126,83 @@ public final class Database: @unchecked Sendable {
         isOpen = false
     }
 
+    // MARK: - Copying
+
+    /// Writes a consistent copy of the whole database to `destination`.
+    ///
+    /// Uses SQLite's online backup API, which exists for exactly this and is
+    /// the only mechanism here that is safe on a connection that is in use:
+    ///
+    /// * A plain file copy is wrong. A WAL database's contents are spread
+    ///   across `board.sqlite`, `-wal` and `-shm`, and copying only the first
+    ///   leaves out everything committed since the last checkpoint.
+    /// * `VACUUM INTO` is wrong too, which cost an afternoon to establish.
+    ///   It cannot run while a connection has active statements, and this one
+    ///   caches its statements — and running it anyway intermittently left
+    ///   *other* connections in the process returning SQLITE_MISUSE on
+    ///   unrelated statements. The backup API has no such interaction: it
+    ///   copies page by page and takes no exclusive hold on either side.
+    public func backup(to destination: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try requireOpen()
+
+        var handleForDestination: OpaquePointer?
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let opened = sqlite3_open_v2(destination.path, &handleForDestination, flags, nil)
+
+        guard opened == SQLITE_OK, let target = handleForDestination else {
+            let detail = handleForDestination.map { Statement.errorMessage($0) }
+                ?? "SQLite returned status \(opened)."
+            sqlite3_close_v2(handleForDestination)
+            throw LocalBoardError.databaseOpenFailed(path: destination.path, detail: detail)
+        }
+        defer { sqlite3_close_v2(target) }
+
+        guard let copier = sqlite3_backup_init(target, "main", handle, "main") else {
+            throw LocalBoardError.databaseQueryFailed(
+                detail: "The copy could not be started: \(Statement.errorMessage(target))"
+            )
+        }
+
+        // -1 copies every remaining page in one go, which is what we want for
+        // a backup nobody is watching a progress bar for.
+        let stepped = sqlite3_backup_step(copier, -1)
+        let finished = sqlite3_backup_finish(copier)
+
+        guard stepped == SQLITE_DONE else {
+            throw LocalBoardError.databaseQueryFailed(
+                detail: "The copy stopped early (SQLite status \(stepped)): \(Statement.errorMessage(target))"
+            )
+        }
+        guard finished == SQLITE_OK else {
+            throw LocalBoardError.databaseQueryFailed(
+                detail: "The copy could not be completed (SQLite status \(finished)): \(Statement.errorMessage(target))"
+            )
+        }
+    }
+
     // MARK: - Executing
 
     /// Runs one or more statements with no parameters and no results.
     public func executeRaw(_ sql: String) throws {
         lock.lock()
         defer { lock.unlock() }
+        try requireOpen()
 
         var errorPointer: UnsafeMutablePointer<CChar>?
         let status = sqlite3_exec(handle, sql, nil, nil, &errorPointer)
         defer { sqlite3_free(errorPointer) }
 
         guard status == SQLITE_OK else {
-            let detail = errorPointer.map { String(cString: $0) } ?? Statement.errorMessage(handle)
-            throw LocalBoardError.databaseQueryFailed(detail: detail)
+            // The numeric status as well as the message. `sqlite3_errmsg` on
+            // its own can report a *previous* error when the failing call left
+            // none of its own, which turns an intermittent fault into a
+            // misleading one.
+            let message = errorPointer.map { String(cString: $0) } ?? Statement.errorMessage(handle)
+            throw LocalBoardError.databaseQueryFailed(
+                detail: "\(message) (SQLite status \(status), extended \(sqlite3_extended_errcode(handle)))"
+            )
         }
     }
 
@@ -180,6 +267,8 @@ public final class Database: @unchecked Sendable {
     }
 
     private func cachedStatement(for sql: String) throws -> Statement {
+        try requireOpen()
+
         if let cached = statementCache[sql] { return cached }
         let statement = try Statement(connection: handle, sql: sql)
         // Bounded so a pathological number of distinct queries cannot grow the
