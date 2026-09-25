@@ -258,3 +258,109 @@ canvas, lists, folders, spaces, docs, whiteboards, the notepad, goals,
 dashboards, the calendar, mind map, box view, or the no-network guarantee.
 Every table added is empty after its migration, and every column added keeps
 its prior behaviour as the default — the same rule that has held since v2.
+
+---
+
+# Appendix A — Query-language audit (precondition 2)
+
+Every place the query language is used, and what keeps each unchanged.
+Compiled from `grep` over the whole source tree, not from memory.
+
+## A.1 Features whose query text is stored on disk
+
+| # | Feature | Where the text lives | In the live database today |
+|---|---|---|---|
+| 1 | **Saved filters** | `saved_view.query` | 3 (`due < +7d`, `assignee = "Ada Lovelace"`, `is:overdue`) |
+| 2 | **Board defined by a query** (cross-Space board) | `board.filter_query` | 0 |
+| 3 | **Colour rule "by saved view"** | `board.color_view_id` → `saved_view.query` | 0 boards set to it |
+| 4 | **Quick filter chips** | `quick_filter.query` | 8 rows (4 per board × 2 boards) |
+| 5 | **Swimlanes** | `swimlane.query` | 2 (`priority >= highest`) |
+| 6 | **Per-view remembered filter** | `view_config.filter_query` | 0 |
+| 7 | **Goals that count cards** | `goal.query` | 0 |
+| 8 | **Dashboard widgets** | `dashboard_widget.query` | 0 |
+
+## A.2 Features that build a query without storing one
+
+| # | Feature | Where |
+|---|---|---|
+| 9 | **Search bar**, combined with whichever quick filters are on | `BoardViewModel.applyQuery` |
+| 10 | **Command palette** card search | `CommandPalette.cards(matching:)` |
+| 11 | **CLI** `localboard list --query` | `Commands.swift` |
+| 12 | **Literals the app asks itself** — `not is:trashed` (×2), `is:flagged` (CLI), `is:open` / `is:overdue` (starter dashboard) | `DashboardDataRepository`, `BoardViewModel+Goals`, `Commands.swift`, `DashboardRepository.createStarter` |
+
+## A.3 Two things that do **not** use the query language
+
+Worth stating because the approval note asked me to prove "automation
+conditions" still parse the same. **They do not exist yet.**
+
+- **Automations** (`automation` table) store one trigger, one optional status,
+  one action and one action value. There is no condition column and no query.
+  The repository's own comment says so: *"Deliberately small: one trigger, one
+  action, no conditions and no chains."* So there is nothing to regression-test
+  here; when 8.5 adds query-based conditions, that is new ground rather than
+  preserved ground.
+- **Workflow transitions** (`workflow_transition`) store a from/to status pair
+  and nothing else. Conditions and validators arrive in 8.5.
+
+## A.4 How each stays unchanged
+
+All twelve go through exactly two functions — `TaskQueryParser.parse` and
+`TaskQueryCompiler.compile`. There is no second parser and no place that
+interprets query text itself. That is what makes the guarantee testable at one
+point rather than twelve.
+
+`QueryCompatibilityTests` compiles all **101** corpus entries against a fixed
+database and a stopped clock and compares the SQL *and* the bound values
+against `Fixtures/query-baseline.json`, recorded from the parser as it stands
+at `milestone-8.5-start`. Today: **89 compile, 12 are rejected.**
+
+Re-recording the baseline requires `RECORD_QUERY_BASELINE=1` — an ordinary
+test run cannot overwrite it, because a run that quietly re-recorded it would
+turn every compatibility failure into a pass.
+
+---
+
+# Appendix B — The collision this audit found
+
+**A strict superset is not achievable by extending the existing grammar in
+place.** Six JQL-shaped strings already compile today, as full-text searches,
+because an unrecognised word is a search term in this language:
+
+| String | What it means today |
+|---|---|
+| `ORDER BY due` | search for the words "ORDER", "BY", "due" |
+| `priority IN (high, highest)` | search for "priority", "IN", "high", "highest" |
+| `summary ~ login` | search for "summary", "login" |
+| `status WAS "In Progress"` | search for "status", "WAS", "In Progress" |
+| `status CHANGED FROM "To Do" TO "Done"` | search for those words |
+| `status = "No Such Column"` | a real status comparison that matches nothing |
+
+Giving `ORDER BY`, `IN`, `~`, `WAS` and `CHANGED` their JQL meanings in the
+same grammar changes what those strings return. Nobody is likely to have saved
+`ORDER BY due` as a text search — the live database contains none of them —
+but "unlikely" is not the promise that was asked for.
+
+## The fix: parse old filters with the old grammar
+
+Give stored filters an explicit syntax mode.
+
+- A new `syntax` column on each of the seven tables in A.1, defaulting to
+  **`simple`** — so every filter that exists today is, by the migration's own
+  default, declared to be in today's language and is parsed by today's parser.
+  Its meaning cannot change, because the code that reads it does not change.
+- New filters may be written in **`jql`**, where `ORDER BY`, `IN`, `~`, `WAS`
+  and `CHANGED` are clauses.
+- The brief already asks for "a basic (dropdown) mode convertible to/from
+  advanced mode", so a stored mode is something 8.5 needs anyway. Converting a
+  `simple` filter to `jql` is an explicit act, and the editor can show what
+  changes before it is saved.
+
+This makes the superset promise literally true and permanently testable: every
+one of the 89 compiling entries keeps its exact SQL for ever, because nothing
+re-parses them under new rules.
+
+The alternative — accept that those six shapes change meaning, on the evidence
+that none is saved anywhere — is defensible but is not what was asked for, and
+it cannot be defended again next time the grammar grows.
+
+**This needs your decision before 8.5b starts.** It does not block 8.5a.

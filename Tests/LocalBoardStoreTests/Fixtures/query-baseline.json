@@ -1,0 +1,802 @@
+[
+  {
+    "parameters" : [
+      "real:1780531200.0"
+    ],
+    "query" : "due < +7d",
+    "source" : "live",
+    "sql" : "task.due_date < ?"
+  },
+  {
+    "parameters" : [
+      "text:Ada Lovelace"
+    ],
+    "query" : "assignee = \"Ada Lovelace\"",
+    "source" : "live",
+    "sql" : "task.assignee_id IN (SELECT id FROM person WHERE name = ? COLLATE NOCASE)"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0"
+    ],
+    "query" : "is:overdue",
+    "source" : "live",
+    "sql" : "(task.completed_at IS NULL AND task.due_date IS NOT NULL AND task.due_date < ?)"
+  },
+  {
+    "parameters" : [
+      "int:4"
+    ],
+    "query" : "priority >= highest",
+    "source" : "live",
+    "sql" : "task.priority >= ?"
+  },
+  {
+    "parameters" : [
+      "text:pe-1"
+    ],
+    "query" : "is:mine",
+    "source" : "starter",
+    "sql" : "task.assignee_id = ?"
+  },
+  {
+    "parameters" : [
+      "real:1779667200.0"
+    ],
+    "query" : "updated >= -3d",
+    "source" : "starter",
+    "sql" : "task.updated_at >= ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:flagged",
+    "source" : "starter",
+    "sql" : "task.flagged = 1"
+  },
+  {
+    "parameters" : [
+      "real:1780617600.0"
+    ],
+    "query" : "due <= +7d is:open",
+    "source" : "starter",
+    "sql" : "(task.due_date < ? AND task.completed_at IS NULL)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:done",
+    "source" : "tests",
+    "sql" : "task.completed_at IS NOT NULL"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0"
+    ],
+    "query" : "is:open and is:overdue",
+    "source" : "tests",
+    "sql" : "(task.completed_at IS NULL AND (task.completed_at IS NULL AND task.due_date IS NOT NULL AND task.due_date < ?))"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0"
+    ],
+    "query" : "is:open is:overdue",
+    "source" : "tests",
+    "sql" : "(task.completed_at IS NULL AND (task.completed_at IS NULL AND task.due_date IS NOT NULL AND task.due_date < ?))"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0"
+    ],
+    "query" : "is:open is:overdue or is:done",
+    "source" : "tests",
+    "sql" : "((task.completed_at IS NULL AND (task.completed_at IS NULL AND task.due_date IS NOT NULL AND task.due_date < ?)) OR task.completed_at IS NOT NULL)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:done or is:trashed",
+    "source" : "tests",
+    "sql" : "(task.completed_at IS NOT NULL OR task.trashed = 1)"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0"
+    ],
+    "query" : "(is:done or is:trashed) is:overdue",
+    "source" : "tests",
+    "sql" : "((task.completed_at IS NOT NULL OR task.trashed = 1) AND (task.completed_at IS NULL AND task.due_date IS NOT NULL AND task.due_date < ?))"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "not is:done",
+    "source" : "tests",
+    "sql" : "NOT (task.completed_at IS NOT NULL)"
+  },
+  {
+    "parameters" : [
+      "real:1778716800.0"
+    ],
+    "query" : "due < -2w",
+    "source" : "tests",
+    "sql" : "task.due_date < ?"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0",
+      "real:1780012800.0"
+    ],
+    "query" : "due = today",
+    "source" : "tests",
+    "sql" : "(task.due_date >= ? AND task.due_date < ?)"
+  },
+  {
+    "parameters" : [
+      "real:1780012800.0",
+      "real:1780099200.0"
+    ],
+    "query" : "due = tomorrow",
+    "source" : "tests",
+    "sql" : "(task.due_date >= ? AND task.due_date < ?)"
+  },
+  {
+    "parameters" : [
+      "real:1779840000.0",
+      "real:1779926400.0"
+    ],
+    "query" : "due = yesterday",
+    "source" : "tests",
+    "sql" : "(task.due_date >= ? AND task.due_date < ?)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "due = none",
+    "source" : "tests",
+    "sql" : "task.due_date IS NULL"
+  },
+  {
+    "parameters" : [
+      "real:1790899200.0"
+    ],
+    "query" : "created > 2026-10-01",
+    "source" : "tests",
+    "sql" : "task.created_at >= ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "assignee != none",
+    "source" : "tests",
+    "sql" : "task.assignee_id IS NOT NULL"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "priority >= high",
+    "source" : "tests",
+    "sql" : "task.priority >= ?"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "type = bug",
+    "source" : "tests",
+    "sql" : "task.type = ?"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "type != bug",
+    "source" : "tests",
+    "sql" : "task.type != ?"
+  },
+  {
+    "parameters" : [
+      "int:4"
+    ],
+    "query" : "priority:highest",
+    "source" : "tests",
+    "sql" : "task.priority = ?"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "type:bug",
+    "source" : "tests",
+    "sql" : "task.type = ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:UNASSIGNED",
+    "source" : "tests",
+    "sql" : "task.assignee_id IS NULL"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "not is:trashed",
+    "source" : "builtIn",
+    "sql" : "NOT (task.trashed = 1)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:open",
+    "source" : "builtIn",
+    "sql" : "task.completed_at IS NULL"
+  },
+  {
+    "parameters" : [
+      "real:1798243200.0"
+    ],
+    "query" : "due <= 2026-12-25",
+    "source" : "coverage",
+    "sql" : "task.due_date < ?"
+  },
+  {
+    "parameters" : [
+      "real:1779408000.0"
+    ],
+    "query" : "start > -1w",
+    "source" : "coverage",
+    "sql" : "task.start_date >= ?"
+  },
+  {
+    "parameters" : [
+      "real:1780099200.0"
+    ],
+    "query" : "updated < +2d",
+    "source" : "coverage",
+    "sql" : "task.updated_at < ?"
+  },
+  {
+    "parameters" : [
+      "real:1777334400.0"
+    ],
+    "query" : "completed >= -30d",
+    "source" : "coverage",
+    "sql" : "task.completed_at >= ?"
+  },
+  {
+    "parameters" : [
+      "real:1780012800.0"
+    ],
+    "query" : "created <= today",
+    "source" : "coverage",
+    "sql" : "task.created_at < ?"
+  },
+  {
+    "parameters" : [
+      "text:%login%"
+    ],
+    "query" : "title = login",
+    "source" : "coverage",
+    "sql" : "task.title LIKE ? ESCAPE '\\'"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:In Progress"
+    ],
+    "query" : "status = \"In Progress\"",
+    "source" : "coverage",
+    "sql" : "task.status_id IN (SELECT id FROM status WHERE project_id = ? AND name = ? COLLATE NOCASE)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:backend"
+    ],
+    "query" : "label = backend",
+    "source" : "coverage",
+    "sql" : "task.id IN (SELECT task_label.task_id FROM task_label\nJOIN label ON label.id = task_label.label_id\nWHERE label.project_id = ? AND label.name = ? COLLATE NOCASE)"
+  },
+  {
+    "parameters" : [
+      "int:1",
+      "text:WORK"
+    ],
+    "query" : "key = WORK-1",
+    "source" : "coverage",
+    "sql" : "(task.number = ? AND task.project_id IN (\n    SELECT id FROM project WHERE key = ? COLLATE NOCASE))"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:1.0"
+    ],
+    "query" : "version = \"1.0\"",
+    "source" : "coverage",
+    "sql" : "task.version_id IN (SELECT id FROM version WHERE project_id = ? AND name = ? COLLATE NOCASE)"
+  },
+  {
+    "parameters" : [
+      "text:%WORK-1%",
+      "int:1",
+      "text:WORK"
+    ],
+    "query" : "epic = WORK-1",
+    "source" : "coverage",
+    "sql" : "task.epic_id IN (SELECT id FROM task AS epic\nWHERE epic.title LIKE ? ESCAPE '\\'\n   OR epic.id IN (SELECT task.id FROM task WHERE (task.number = ? AND task.project_id IN (\n    SELECT id FROM project WHERE key = ? COLLATE NOCASE))))"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Sprint 1"
+    ],
+    "query" : "sprint = \"Sprint 1\"",
+    "source" : "coverage",
+    "sql" : "task.sprint_id IN (SELECT id FROM sprint WHERE project_id = ? AND name = ? COLLATE NOCASE)"
+  },
+  {
+    "parameters" : [
+      "real:3.0"
+    ],
+    "query" : "points >= 3",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate >= ?)"
+  },
+  {
+    "parameters" : [
+      "real:8.0"
+    ],
+    "query" : "points < 8",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate < ?)"
+  },
+  {
+    "parameters" : [
+      "real:1779580800.0"
+    ],
+    "query" : "days >= 5",
+    "source" : "coverage",
+    "sql" : "(task.status_changed_at IS NOT NULL AND task.status_changed_at < ?)"
+  },
+  {
+    "parameters" : [
+      "text:%1%"
+    ],
+    "query" : "flag = 1",
+    "source" : "coverage",
+    "sql" : "(task.flagged = 1 AND task.flag_reason LIKE ? ESCAPE '\\')"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:trashed",
+    "source" : "coverage",
+    "sql" : "task.trashed = 1"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:assigned",
+    "source" : "coverage",
+    "sql" : "task.assignee_id IS NOT NULL"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:unassigned",
+    "source" : "coverage",
+    "sql" : "task.assignee_id IS NULL"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:subtask",
+    "source" : "coverage",
+    "sql" : "task.parent_id IS NOT NULL"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:labelled",
+    "source" : "coverage",
+    "sql" : "task.id IN (SELECT task_id FROM task_label)"
+  },
+  {
+    "parameters" : [
+      "int:0"
+    ],
+    "query" : "is:epic",
+    "source" : "coverage",
+    "sql" : "task.type = ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:released",
+    "source" : "coverage",
+    "sql" : "task.version_id IN (SELECT id FROM version WHERE released = 1)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:backlog",
+    "source" : "coverage",
+    "sql" : "task.status_id IN (\n    SELECT column_status.status_id FROM column_status\n    JOIN board_column ON board_column.id = column_status.column_id\n    WHERE board_column.is_backlog = 1\n)"
+  },
+  {
+    "parameters" : [
+      "real:1.0"
+    ],
+    "query" : "points > 1",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate > ?)"
+  },
+  {
+    "parameters" : [
+      "real:1.0"
+    ],
+    "query" : "points >= 1",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate >= ?)"
+  },
+  {
+    "parameters" : [
+      "real:9.0"
+    ],
+    "query" : "points < 9",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate < ?)"
+  },
+  {
+    "parameters" : [
+      "real:9.0"
+    ],
+    "query" : "points <= 9",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate <= ?)"
+  },
+  {
+    "parameters" : [
+      "real:5.0"
+    ],
+    "query" : "points = 5",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate = ?)"
+  },
+  {
+    "parameters" : [
+      "real:5.0"
+    ],
+    "query" : "points != 5",
+    "source" : "coverage",
+    "sql" : "(task.estimate IS NOT NULL AND task.estimate != ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Size",
+      "real:3.0"
+    ],
+    "query" : "cf:Size = 3",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.number_value = ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Notes",
+      "text:%urgent%"
+    ],
+    "query" : "cf:Notes = urgent",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.text_value LIKE ? ESCAPE '\\')"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Signed",
+      "int:1"
+    ],
+    "query" : "cf:Signed = yes",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.bool_value = ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Reviewed",
+      "real:1767225600.0"
+    ],
+    "query" : "cf:Reviewed = 2026-01-01",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.date_value = ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Stage",
+      "text:Beta"
+    ],
+    "query" : "cf:Stage = Beta",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.text_value = ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Size",
+      "real:2.0"
+    ],
+    "query" : "cf:Size > 2",
+    "source" : "coverage",
+    "sql" : "task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE AND custom_field_value.number_value > ?)"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:Size"
+    ],
+    "query" : "cf:Size = none",
+    "source" : "coverage",
+    "sql" : "NOT (task.id IN (\n    SELECT custom_field_value.task_id FROM custom_field_value\n    JOIN custom_field ON custom_field.id = custom_field_value.field_id\n    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE))"
+  },
+  {
+    "parameters" : [
+      "text:\"login\"*"
+    ],
+    "query" : "login",
+    "source" : "coverage",
+    "sql" : "task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?)"
+  },
+  {
+    "parameters" : [
+      "text:\"login\"*",
+      "text:\"screen\"*"
+    ],
+    "query" : "login screen",
+    "source" : "coverage",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?))"
+  },
+  {
+    "parameters" : [
+      "text:\"exact\"* \"phrase\"*"
+    ],
+    "query" : "\"exact phrase\"",
+    "source" : "coverage",
+    "sql" : "task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?)"
+  },
+  {
+    "parameters" : [
+      "text:\"login\"*"
+    ],
+    "query" : "login is:open",
+    "source" : "coverage",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.completed_at IS NULL)"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "is:open or is:done and is:flagged",
+    "source" : "coverage",
+    "sql" : "(task.completed_at IS NULL OR (task.completed_at IS NOT NULL AND task.flagged = 1))"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "not (is:done or is:trashed)",
+    "source" : "coverage",
+    "sql" : "NOT ((task.completed_at IS NOT NULL OR task.trashed = 1))"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "not is:done not is:trashed",
+    "source" : "coverage",
+    "sql" : "(NOT (task.completed_at IS NOT NULL) AND NOT (task.trashed = 1))"
+  },
+  {
+    "parameters" : [
+      "real:1779926400.0",
+      "int:3"
+    ],
+    "query" : "(due < today) (priority >= high)",
+    "source" : "coverage",
+    "sql" : "(task.due_date < ? AND task.priority >= ?)"
+  },
+  {
+    "parameters" : [
+      "int:3",
+      "int:1"
+    ],
+    "query" : "is:open (type = bug or type = story)",
+    "source" : "coverage",
+    "sql" : "(task.completed_at IS NULL AND (task.type = ? OR task.type = ?))"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "IS:OPEN",
+    "source" : "coverage",
+    "sql" : "task.completed_at IS NULL"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "Priority >= High",
+    "source" : "coverage",
+    "sql" : "task.priority >= ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "  is:open  ",
+    "source" : "coverage",
+    "sql" : "task.completed_at IS NULL"
+  },
+  {
+    "parameters" : [
+      "real:1780531200.0"
+    ],
+    "query" : "due<+7d",
+    "source" : "coverage",
+    "sql" : "task.due_date < ?"
+  },
+  {
+    "parameters" : [
+      "int:3"
+    ],
+    "query" : "priority>=high",
+    "source" : "coverage",
+    "sql" : "task.priority >= ?"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "",
+    "source" : "coverage",
+    "sql" : "1"
+  },
+  {
+    "parameters" : [
+
+    ],
+    "query" : "   ",
+    "source" : "coverage",
+    "sql" : "1"
+  },
+  {
+    "query" : "due < banana",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "priority = urgentish",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "is:sideways",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "type = wombat",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "due <",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "(is:done",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "is:done)",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "points > ",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "cf:Size > banana",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "cf:Nonexistent = 3",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "assignee = currentUser()",
+    "source" : "rejectedToday"
+  },
+  {
+    "query" : "due >= startOfWeek()",
+    "source" : "rejectedToday"
+  },
+  {
+    "parameters" : [
+      "text:\"ORDER\"*",
+      "text:\"BY\"*",
+      "text:\"due\"*"
+    ],
+    "query" : "ORDER BY due",
+    "source" : "textSearchToday",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?))"
+  },
+  {
+    "parameters" : [
+      "text:\"priority\"*",
+      "text:\"IN\"*",
+      "text:\"high\"*",
+      "text:\"highest\"*"
+    ],
+    "query" : "priority IN (high, highest)",
+    "source" : "textSearchToday",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND (task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?)))"
+  },
+  {
+    "parameters" : [
+      "text:\"summary\"*",
+      "text:\"login\"*"
+    ],
+    "query" : "summary ~ login",
+    "source" : "textSearchToday",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND 1 AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?))"
+  },
+  {
+    "parameters" : [
+      "text:\"status\"*",
+      "text:\"WAS\"*",
+      "text:\"In\"* \"Progress\"*"
+    ],
+    "query" : "status WAS \"In Progress\"",
+    "source" : "textSearchToday",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?))"
+  },
+  {
+    "parameters" : [
+      "text:\"status\"*",
+      "text:\"CHANGED\"*",
+      "text:\"FROM\"*",
+      "text:\"To\"* \"Do\"*",
+      "text:\"TO\"*",
+      "text:\"Done\"*"
+    ],
+    "query" : "status CHANGED FROM \"To Do\" TO \"Done\"",
+    "source" : "textSearchToday",
+    "sql" : "(task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?) AND task.rowid IN (SELECT rowid FROM task_fts WHERE task_fts MATCH ?))"
+  },
+  {
+    "parameters" : [
+      "text:pr-1",
+      "text:No Such Column"
+    ],
+    "query" : "status = \"No Such Column\"",
+    "source" : "textSearchToday",
+    "sql" : "task.status_id IN (SELECT id FROM status WHERE project_id = ? AND name = ? COLLATE NOCASE)"
+  }
+]
