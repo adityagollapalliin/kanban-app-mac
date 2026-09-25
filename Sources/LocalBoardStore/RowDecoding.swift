@@ -77,6 +77,8 @@ extension Project {
             nextTaskNumber: try row.requiredInt("next_task_number"),
             archived: try row.requiredBool("archived"),
             enforcesWorkflow: row.bool("enforce_workflow") ?? false,
+            color: row.string("color") ?? "",
+            icon: row.string("icon") ?? "",
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
         )
@@ -142,6 +144,9 @@ extension Person {
             id: try row.requiredString("id"),
             name: try row.requiredString("name"),
             color: row.string("color") ?? "graphite",
+            capacityAmount: row.double("capacity_amount") ?? 0,
+            capacityUnit: CapacityUnit(rawValue: row.int("capacity_unit").map(Int.init) ?? 0) ?? .hours,
+            capacityPeriod: CapacityPeriod(rawValue: row.int("capacity_period").map(Int.init) ?? 1) ?? .week,
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
         )
@@ -195,6 +200,9 @@ extension BoardTask {
             statusChangedAt: row.date("status_changed_at"),
             versionID: row.string("version_id"),
             sprintID: row.string("sprint_id"),
+            listID: row.string("list_id"),
+            isMilestone: row.bool("is_milestone") ?? false,
+            trashedAt: row.date("trashed_at"),
             createdAt: try row.requiredDate("created_at"),
             updatedAt: try row.requiredDate("updated_at"),
             completedAt: row.date("completed_at")
@@ -408,6 +416,105 @@ extension RunningTimer {
             taskID: try row.requiredString("task_id"),
             personID: row.string("person_id"),
             startedAt: try row.requiredDate("started_at")
+        )
+    }
+}
+
+// MARK: - Schema 6
+
+extension Folder {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            color: row.string("color") ?? "",
+            icon: row.string("icon") ?? "",
+            archived: row.bool("archived") ?? false,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension TaskList {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            folderID: row.string("folder_id"),
+            name: try row.requiredString("name"),
+            color: row.string("color") ?? "",
+            icon: row.string("icon") ?? "",
+            archived: row.bool("archived") ?? false,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension TaskAssignee {
+    init(row: Row) throws {
+        self.init(
+            taskID: try row.requiredString("task_id"),
+            personID: try row.requiredString("person_id"),
+            estimate: row.double("estimate"),
+            sortOrder: try row.requiredDouble("sort_order")
+        )
+    }
+}
+
+extension Recurrence {
+    init(row: Row) throws {
+        let rule = RecurrenceRule(
+            frequency: try row.requiredEnum("frequency", RecurrenceFrequency.self),
+            interval: try row.requiredInt("interval"),
+            weekdays: RecurrenceRule.weekdays(from: row.string("weekdays") ?? ""),
+            weekOfMonth: row.int("week_of_month").map(Int.init),
+            monthDay: row.int("month_day").map(Int.init),
+            mode: try row.requiredEnum("mode", RecurrenceMode.self),
+            resetChecklist: row.bool("reset_checklist") ?? true,
+            resetSubtasks: row.bool("reset_subtasks") ?? true,
+            resetStatus: row.bool("reset_status") ?? true,
+            endsAt: row.date("ends_at")
+        )
+        self.init(
+            id: try row.requiredString("id"),
+            taskID: try row.requiredString("task_id"),
+            rule: rule,
+            lastSpawnedAt: row.date("last_spawned_at"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension ViewConfig {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            scopeKind: try row.requiredEnum("scope_kind", ViewScopeKind.self),
+            scopeID: row.string("scope_id") ?? "",
+            viewKind: try row.requiredEnum("view_kind", ViewKind.self),
+            groupBy: row.string("group_by") ?? "",
+            sortField: row.string("sort_field") ?? "",
+            sortAscending: row.bool("sort_ascending") ?? true,
+            filterQuery: row.string("filter_query") ?? "",
+            columns: ViewConfig.columns(from: row.string("columns") ?? ""),
+            updatedAt: try row.requiredDate("updated_at")
+        )
+    }
+}
+
+extension Shortcut {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            kind: try row.requiredEnum("kind", ShortcutKind.self),
+            target: try row.requiredEnum("target", ShortcutTarget.self),
+            targetID: try row.requiredString("target_id"),
+            label: row.string("label") ?? "",
+            sortOrder: try row.requiredDouble("sort_order"),
+            at: try row.requiredDate("at")
         )
     }
 }

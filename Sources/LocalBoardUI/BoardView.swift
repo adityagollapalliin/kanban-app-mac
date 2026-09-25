@@ -42,14 +42,20 @@ struct BoardView: View {
     /// start, the releases it is going into, and what the history says about
     /// all of it — views of one project rather than a set of places.
     enum BoardScreen: String, CaseIterable, Identifiable {
-        case board, list, calendar, backlog, timeline, sprints, releases, analytics
+        case board, list, table, calendar, timeline, workload, box, mindMap, backlog, sprints, releases, activity, analytics, everything
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .board: "Board"
             case .list: "List"
+            case .table: "Table"
             case .calendar: "Calendar"
+            case .workload: "Workload"
+            case .box: "Box"
+            case .mindMap: "Mind Map"
+            case .activity: "Activity"
+            case .everything: "Everything"
             case .backlog: "Backlog"
             case .timeline: "Timeline"
             case .sprints: "Sprints"
@@ -61,14 +67,23 @@ struct BoardView: View {
         /// Whether the quick filters belong above this screen. They do wherever
         /// the screen is showing the board's own cards.
         var showsFilters: Bool {
-            self == .board || self == .list || self == .calendar
+            switch self {
+            case .board, .list, .table, .calendar, .box, .mindMap, .everything: true
+            default: false
+            }
         }
 
         var symbol: String {
             switch self {
             case .board: "rectangle.split.3x1"
             case .list: "list.bullet.rectangle"
+            case .table: "tablecells"
             case .calendar: "calendar"
+            case .workload: "gauge.with.dots.needle.67percent"
+            case .box: "square.grid.2x2"
+            case .mindMap: "point.3.connected.trianglepath.dotted"
+            case .activity: "clock.arrow.circlepath"
+            case .everything: "globe"
             case .backlog: "tray.2"
             case .timeline: "chart.bar.xaxis"
             case .sprints: "figure.run"
@@ -114,121 +129,14 @@ struct BoardView: View {
 
     // MARK: - Sidebar
 
+    /// Spaces, folders, lists and shortcuts. Its own file, because a sidebar
+    /// that draws four levels and five kinds of shortcut is a screen rather
+    /// than a detail of this one.
     private var sidebar: some View {
-        List(selection: $model.selectedBoardID) {
-            ForEach(model.projects) { project in
-                Section {
-                    ForEach(model.boards.filter { $0.projectID == project.id }) { board in
-                        Label(board.name, systemImage: "rectangle.split.3x1")
-                            .tag(board.id)
-                            .contextMenu {
-                                Button("Rename Board…") {
-                                    renamedBoardName = board.name
-                                    renamingBoardID = board.id
-                                }
-                                Button("Delete Board", systemImage: "trash", role: .destructive) {
-                                    model.deleteBoard(board.id)
-                                }
-                                .disabled(model.boards.filter { $0.projectID == project.id }.count < 2)
-                            }
-                    }
-                } header: {
-                    HStack(spacing: 6) {
-                        Text(project.name)
-                        Text(project.key)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.tertiary)
-                    }
-                    .contextMenu {
-                        Button("New Board…") {
-                            newBoardName = ""
-                            boardParentProject = project.id
-                            isAddingBoard = true
-                        }
-                        Divider()
-                        Button("Delete Project", systemImage: "trash", role: .destructive) {
-                            model.deleteProject(project.id)
-                        }
-                    }
-                }
-            }
-
-            Section("Views") {
-                ForEach(model.savedViews) { view in
-                    savedViewRow(view)
-                }
-
-                // Built in, because the trash has to be reachable by someone
-                // who has never heard of `is:trashed`.
-                trashRow
-            }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button {
-                    newProjectName = ""
-                    newProjectKey = ""
-                    isAddingProject = true
-                } label: {
-                    Label("New Project", systemImage: "plus")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.bar)
-        }
-    }
-
-    private var trashRow: some View {
-        let isActive = model.queryText == Self.trashQuery
-
-        return Button {
-            model.queryText = isActive ? "" : Self.trashQuery
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: isActive ? "trash.fill" : "trash")
-                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                Text("Trash")
-                    .foregroundStyle(isActive ? Color.accentColor : .primary)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Cards you have thrown away. Nothing is deleted; they can be put back.")
-    }
-
-    private static let trashQuery = "is:trashed"
-
-    /// A view is a button rather than a selectable row: opening one changes
-    /// the filter, not which board is on screen.
-    private func savedViewRow(_ view: SavedView) -> some View {
-        let isActive = model.queryText == view.query
-
-        return Button {
-            model.apply(view)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease.circle\(isActive ? ".fill" : "")")
-                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                Text(view.name)
-                    .foregroundStyle(isActive ? Color.accentColor : .primary)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(view.query)
-        .accessibilityHint("Filters the board by: \(view.query)")
-        .contextMenu {
-            Button("Delete View", systemImage: "trash", role: .destructive) {
-                model.deleteSavedView(view.id)
-            }
+        SpaceSidebar(model: model) {
+            newProjectName = ""
+            newProjectKey = ""
+            isAddingProject = true
         }
     }
 
@@ -356,8 +264,20 @@ struct BoardView: View {
             }
         case .list:
             ListView(model: model, onOpenInWindow: openInWindow)
+        case .table:
+            TableView(model: model)
         case .calendar:
             CalendarView(model: model, onOpenInWindow: openInWindow)
+        case .workload:
+            WorkloadView(model: model)
+        case .box:
+            BoxView(model: model)
+        case .mindMap:
+            MindMapView(model: model, onOpenInWindow: openInWindow)
+        case .activity:
+            ActivityView(model: model)
+        case .everything:
+            EverythingView(model: model, onOpenInWindow: openInWindow)
         case .backlog:
             BacklogView(model: model, onOpenInWindow: openInWindow) { screen = .board }
         case .timeline:
@@ -374,14 +294,28 @@ struct BoardView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            Picker("Screen", selection: $screen) {
+            // A menu rather than a segmented control: thirteen segments is a
+            // row of unlabelled icons nobody can tell apart, and the name of
+            // the view you are in is worth more than a saved click.
+            Menu {
                 ForEach(BoardScreen.allCases) { option in
-                    Label(option.label, systemImage: option.symbol).tag(option)
+                    Button {
+                        screen = option
+                    } label: {
+                        if screen == option {
+                            Label(option.label, systemImage: "checkmark")
+                        } else {
+                            Label(option.label, systemImage: option.symbol)
+                        }
+                    }
                 }
+            } label: {
+                Label(screen.label, systemImage: screen.symbol)
+                    .labelStyle(.titleAndIcon)
             }
-            .pickerStyle(.segmented)
-            .labelStyle(.iconOnly)
-            .help("Board, list, calendar, backlog, timeline, sprints, releases, analytics")
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Which view of this work to show")
         }
 
         if let timed = model.timedTask {

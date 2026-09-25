@@ -55,6 +55,11 @@ extension Database {
     }
 
     @discardableResult
+    func hasTable(_ name: String) throws -> Bool {
+        try count("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?;", [name]) > 0
+    }
+
+    @discardableResult
     func insertTask(
         project: String,
         status: String,
@@ -105,6 +110,19 @@ extension Database {
             "INSERT INTO board (id, project_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?);",
             [boardID, projectID, "Board", 1_000.0, now]
         )
+        // Since schema 6 every card has a home list, and `createProject` makes
+        // one — so a hand-seeded project without one is a shape the app cannot
+        // actually produce. Skipped on a database deliberately held at an
+        // earlier version, which the migration tests do.
+        if try hasTable("list") {
+            try execute(
+                """
+                INSERT INTO list (id, project_id, folder_id, name, sort_order, created_at)
+                VALUES (?, ?, NULL, ?, ?, ?);
+                """,
+                [UUID().uuidString, projectID, "Work", 1_000.0, now]
+            )
+        }
 
         var ids: [String] = []
         for (index, starter) in [("To Do", 0), ("In Progress", 1), ("Done", 2)].enumerated() {

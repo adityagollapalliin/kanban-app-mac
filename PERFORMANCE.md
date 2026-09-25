@@ -9,7 +9,7 @@ with `localboard seed --count 1000`.
 
 | Budget | Target | Measured at 1,013 cards |
 |---|---|---|
-| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **86 MB** board, **107 MB** with swimlanes, **93 MB** list, **77 MB** calendar (**67 MB** on a seven-card board) |
+| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **103 MB** board, **85 MB** table, **93 MB** list, **77 MB** calendar, **96 MB** mind map, **71 MB** everything, **69 MB** activity, **62 MB** workload, **61 MB** box (**67 MB** on a seven-card board) |
 | Idle CPU | ~0%, no polling | **0.0%** |
 | Launch | under 1 second to usable UI | **~150 ms** to process, UI immediately after |
 
@@ -40,6 +40,13 @@ card built at once — and is now lazy: 181 MB → 77 MB.
 
 The lesson worth keeping: **a nested lazy container is not lazy**, and no test
 can tell you so. Only measuring with the view on screen can.
+
+The same rule caught a third case in Milestone 6: the **mind map** built every
+node at once and cost **297 MB** at a thousand cards. A map has no scrolling
+region of its own to be lazy inside — the curves have to be drawn between
+nodes that both exist — so it is bounded instead: a hundred and fifty nodes,
+with a line saying what it is not showing. **297 MB → 96 MB**, and a map of a
+thousand cards was not readable anyway.
 
 ### Measure memory the way Activity Monitor does
 

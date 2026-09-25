@@ -40,6 +40,9 @@ struct TaskDetailView: View {
             placementSection
             dueSection
             estimateSection
+            AssigneesSection(task: task, model: model)
+            ListsSection(task: task, model: model)
+            RecurrenceSection(task: task, model: model)
             SprintAndTimerSection(task: task, model: model)
             CustomFieldSection(task: task, model: model)
             labelsSection
@@ -283,6 +286,8 @@ struct TaskDetailView: View {
                 DatePicker("Due", selection: dueDateBinding, displayedComponents: .date)
                     .datePickerStyle(.compact)
             }
+
+            MilestoneToggle(task: task, model: model)
         }
     }
 

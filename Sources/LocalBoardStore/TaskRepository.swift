@@ -136,7 +136,8 @@ public struct TaskRepository {
         priority: Priority = .normal,
         descriptionMarkdown: String = "",
         assigneeID: String? = nil,
-        dueDate: Date? = nil
+        dueDate: Date? = nil,
+        listID: String? = nil
     ) throws -> BoardTask {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -153,16 +154,31 @@ public struct TaskRepository {
                 """
                 INSERT INTO task (id, project_id, status_id, number, type, title, description_md,
                                   assignee_id, priority, due_date, sort_order, status_changed_at,
-                                  created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                                  list_id, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 [
                     id, projectID, statusID, number, type.rawValue, trimmed, descriptionMarkdown,
-                    assigneeID.sqlValue, priority.rawValue, dueDate.sqlValue, position, now, now, now,
+                    assigneeID.sqlValue, priority.rawValue, dueDate.sqlValue, position, now,
+                    // Every card has a home list. Told which, it goes there;
+                    // told nothing, it joins the project's first — which on a
+                    // file that has never made a second list is the only one.
+                    (try listID ?? defaultListID(projectID: projectID)).sqlValue,
+                    now, now,
                     // A task created straight into a done column is already done.
                     try isComplete(statusID: statusID) ? now.sqlValue : SQLValue.null,
                 ]
             )
+
+            if let assigneeID {
+                try database.execute(
+                    """
+                    INSERT INTO task_assignee (task_id, person_id, estimate, sort_order)
+                    VALUES (?, ?, NULL, ?);
+                    """,
+                    [id, assigneeID, SortOrder.step]
+                )
+            }
 
             // The opening entry of the card's history. Without it the first
             // move would look like the card's whole life, and every chart
@@ -198,6 +214,15 @@ public struct TaskRepository {
             """,
             [projectID, statusID]
         )?.double("last")
+    }
+
+    /// The list a new card joins when nobody says. `nil` only on a project
+    /// with no lists at all, which the v6 migration made impossible for
+    /// existing files and `createProject` makes impossible for new ones.
+    func defaultListID(projectID: String) throws -> String? {
+        try database.queryOne(
+            "SELECT id FROM list WHERE project_id = ? ORDER BY sort_order LIMIT 1;", [projectID]
+        )?.string("id")
     }
 
     private func isComplete(statusID: String) throws -> Bool {
@@ -296,6 +321,13 @@ public struct TaskRepository {
             if changedColumn {
                 try recordStatusChange(taskID: taskID, from: moving.statusID, to: statusID, at: now)
 
+                // A card that recurs on completion produces its next one here,
+                // where "finished" actually happens — not on a timer that
+                // would have to work out afterwards that it had.
+                if destinationIsDone, moving.completedAt == nil {
+                    try RecurrenceRepository(database: database, clock: clock).completed(taskID, at: now)
+                }
+
                 let moved = try task(id: taskID)
                 let automations = AutomationRepository(database: database, clock: clock)
 
@@ -376,8 +408,13 @@ public struct TaskRepository {
 
     /// Trashing hides a task from every board. The row stays, so it can come
     /// back with its history, its number and its place intact.
+    ///
+    /// `trashed_at` is stamped here and cleared on the way back, because it is
+    /// what the thirty-day purge counts from: `updated_at` moves when the
+    /// trashing itself is recorded and so cannot answer "how long has this
+    /// been in the bin".
     public func setTrashed(_ trashed: Bool, for taskID: String) throws {
-        try update(taskID, "trashed = ?", [trashed])
+        try update(taskID, "trashed = ?, trashed_at = ?", [trashed, trashed ? clock.now.sqlValue : SQLValue.null])
     }
 
     /// Marks a card as blocked, with the reason in the user's own words.

@@ -361,6 +361,16 @@ public struct BoardRepository {
 
         try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
 
+        // The one list every card starts in. A file that never makes a second
+        // reads exactly as it did before lists existed.
+        try database.execute(
+            """
+            INSERT INTO list (id, project_id, folder_id, name, sort_order, created_at)
+            VALUES (?, ?, NULL, ?, ?, ?);
+            """,
+            [UUID().uuidString, projectID, "My Project", SortOrder.step, now]
+        )
+
         guard let row = try database.queryOne("SELECT * FROM board WHERE id = ?;", [boardID]) else {
             throw LocalBoardError.databaseQueryFailed(detail: "The starter board was not written.")
         }

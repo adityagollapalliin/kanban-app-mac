@@ -37,6 +37,10 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
     /// and with no transitions defined a project allows everything — so
     /// turning this on is the only thing that can ever refuse a move.
     public var enforcesWorkflow: Bool
+    /// A palette colour name and an SF Symbol, both empty until chosen. A
+    /// sidebar of a dozen spaces is unreadable as a dozen lines of text.
+    public var color: String
+    public var icon: String
     public var sortOrder: Double
     public var createdAt: Date
 
@@ -49,6 +53,8 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
         nextTaskNumber: Int = 1,
         archived: Bool = false,
         enforcesWorkflow: Bool = false,
+        color: String = "",
+        icon: String = "",
         sortOrder: Double,
         createdAt: Date
     ) {
@@ -60,6 +66,8 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
         self.nextTaskNumber = nextTaskNumber
         self.archived = archived
         self.enforcesWorkflow = enforcesWorkflow
+        self.color = color
+        self.icon = icon
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
@@ -206,16 +214,43 @@ public struct Person: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public var name: String
     public var color: String
+    /// How much this person can take on. Zero means nobody has said, which
+    /// the workload view draws as a bar with no ceiling rather than as a
+    /// person who can do nothing.
+    public var capacityAmount: Double
+    public var capacityUnit: CapacityUnit
+    public var capacityPeriod: CapacityPeriod
     public var sortOrder: Double
     public var createdAt: Date
 
-    public init(id: String, name: String, color: String = "graphite", sortOrder: Double, createdAt: Date) {
+    public init(
+        id: String,
+        name: String,
+        color: String = "graphite",
+        capacityAmount: Double = 0,
+        capacityUnit: CapacityUnit = .hours,
+        capacityPeriod: CapacityPeriod = .week,
+        sortOrder: Double,
+        createdAt: Date
+    ) {
         self.id = id
         self.name = name
         self.color = color
+        self.capacityAmount = capacityAmount
+        self.capacityUnit = capacityUnit
+        self.capacityPeriod = capacityPeriod
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
+
+    /// What this person can take in a week, whichever way it was entered —
+    /// the workload view compares weeks, so a daily figure is multiplied by
+    /// five rather than by seven: capacity is working days.
+    public var weeklyCapacity: Double {
+        capacityPeriod == .week ? capacityAmount : capacityAmount * 5
+    }
+
+    public var hasCapacity: Bool { capacityAmount > 0 }
 }
 
 public struct CardLabel: Sendable, Equatable, Identifiable, Codable {
@@ -283,6 +318,16 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
     public var statusChangedAt: Date?
     public var versionID: String?
     public var sprintID: String?
+    /// The list this card lives in. One home, however many other lists it is
+    /// also shown in.
+    public var listID: String?
+    /// A date that matters rather than work with a length: drawn as a diamond
+    /// on the timeline, because giving it a bar would claim a duration it
+    /// does not have.
+    public var isMilestone: Bool
+    /// When it was thrown away, which is not when it was last edited — the
+    /// trashing itself moves `updatedAt`, so that column cannot answer this.
+    public var trashedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
@@ -317,6 +362,9 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         statusChangedAt: Date? = nil,
         versionID: String? = nil,
         sprintID: String? = nil,
+        listID: String? = nil,
+        isMilestone: Bool = false,
+        trashedAt: Date? = nil,
         createdAt: Date,
         updatedAt: Date,
         completedAt: Date? = nil
@@ -342,6 +390,9 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.statusChangedAt = statusChangedAt
         self.versionID = versionID
         self.sprintID = sprintID
+        self.listID = listID
+        self.isMilestone = isMilestone
+        self.trashedAt = trashedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt

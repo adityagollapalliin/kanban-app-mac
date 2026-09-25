@@ -125,7 +125,36 @@ struct TimelineView: View {
         }
     }
 
+    @ViewBuilder
     private func bar(_ task: BoardTask) -> some View {
+        if task.isMilestone {
+            diamond(task)
+        } else {
+            lengthBar(task)
+        }
+    }
+
+    /// A milestone has no length, so it is drawn as a point rather than a bar.
+    /// Giving it a width would be a claim about when the work happens, and the
+    /// whole reason to mark a card as a milestone is that it is a date.
+    private func diamond(_ task: BoardTask) -> some View {
+        Rectangle()
+            .fill(task.completedAt == nil ? barColor(task) : barColor(task).opacity(0.4))
+            .frame(width: Self.rowHeight - 18, height: Self.rowHeight - 18)
+            .rotationEffect(.degrees(45))
+            .overlay {
+                Rectangle()
+                    .strokeBorder(model.isPicked(task.id) || model.selectedTaskID == task.id
+                                  ? Color.accentColor : .clear, lineWidth: 2)
+                    .frame(width: Self.rowHeight - 18, height: Self.rowHeight - 18)
+                    .rotationEffect(.degrees(45))
+            }
+            .frame(width: Self.dayWidth, height: Self.rowHeight - 10)
+            .help(barHelp(task) + " — a milestone")
+            .accessibilityLabel("\(task.title), milestone")
+    }
+
+    private func lengthBar(_ task: BoardTask) -> some View {
         let days = max(1, length(of: task))
         let blocked = isBlocked(task)
 

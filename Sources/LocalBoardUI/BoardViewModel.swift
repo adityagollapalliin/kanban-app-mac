@@ -13,15 +13,15 @@ import LocalBoardStore
 @Observable
 public final class BoardViewModel {
 
-    public private(set) var workspaces: [Workspace] = []
-    public private(set) var projects: [Project] = []
-    public private(set) var boards: [Board] = []
+    public internal(set) var workspaces: [Workspace] = []
+    public internal(set) var projects: [Project] = []
+    public internal(set) var boards: [Board] = []
     public private(set) var snapshot: BoardSnapshot?
 
     /// What went wrong with the last action. Shown, then dismissed by the next
     /// successful one — an error the user cannot clear is an error they learn
     /// to ignore.
-    public private(set) var failure: LocalBoardError?
+    public internal(set) var failure: LocalBoardError?
 
     public var selectedBoardID: String? {
         didSet {
@@ -112,7 +112,7 @@ public final class BoardViewModel {
         snapshot?.columns.map(\.status) ?? []
     }
 
-    public private(set) var people: [Person] = []
+    public internal(set) var people: [Person] = []
     public private(set) var savedViews: [SavedView] = []
     public private(set) var quickFilters: [QuickFilter] = []
     public private(set) var swimlanes: [Swimlane] = []
@@ -169,13 +169,13 @@ public final class BoardViewModel {
     /// the repository link changes.
     var gitReferenceCache: [String: [GitReferences.Reference]] = [:]
 
-    private let database: Database
-    private let boardRepository: BoardRepository
-    private let taskRepository: TaskRepository
-    private let personRepository: PersonRepository
-    private let savedViewRepository: SavedViewRepository
-    private let labelRepository: LabelRepository
-    private let checklistRepository: ChecklistRepository
+    let database: Database
+    let boardRepository: BoardRepository
+    let taskRepository: TaskRepository
+    let personRepository: PersonRepository
+    let savedViewRepository: SavedViewRepository
+    let labelRepository: LabelRepository
+    let checklistRepository: ChecklistRepository
     let versionRepository: VersionRepository
     let presentationRepository: BoardPresentationRepository
     let analyticsRepository: AnalyticsRepository
@@ -186,6 +186,13 @@ public final class BoardViewModel {
     let workflowRepository: WorkflowRepository
     let automationRepository: AutomationRepository
     let templateRepository: TemplateRepository
+    let structureRepository: StructureRepository
+    let membershipRepository: MembershipRepository
+    let recurrenceRepository: RecurrenceRepository
+    let sidebarRepository: SidebarRepository
+    let viewConfigRepository: ViewConfigRepository
+    let activityRepository: ActivityRepository
+    let workloadRepository: WorkloadRepository
 
     /// The project's own fields, and what every card on the board has put in
     /// them — gathered in one query rather than one per card.
@@ -261,6 +268,42 @@ public final class BoardViewModel {
     /// an arrow per dependency and cannot afford a query per card per redraw.
     private var linksByTask: [String: [(link: TaskLink, kind: LinkKind, otherID: String)]] = [:]
 
+    // MARK: - The hierarchy
+
+    /// The folders and lists of the space on screen, and which list — if any —
+    /// the board is narrowed to. `nil` means the whole space, which is what a
+    /// board has always shown.
+    public internal(set) var folders: [Folder] = []
+    public internal(set) var lists: [TaskList] = []
+    public var selectedListID: String? {
+        didSet {
+            guard selectedListID != oldValue else { return }
+            applyQuery()
+            if let selectedListID, let list = lists.first(where: { $0.id == selectedListID }) {
+                perform { try sidebarRepository.recordVisit(.list, id: list.id, label: list.name) }
+                loadSidebar()
+            }
+        }
+    }
+
+    /// Everyone on each card, and where else each card appears. Both gathered
+    /// once per load, for the same reason every other per-card fact is.
+    public internal(set) var assigneesByTask: [String: [TaskAssignee]] = [:]
+    public internal(set) var extraListsByTask: [String: [TaskList]] = [:]
+
+    /// The sidebar's shortcuts, and the things that have been put away.
+    public internal(set) var favorites: [Shortcut] = []
+    public internal(set) var pinnedViews: [Shortcut] = []
+    public internal(set) var recents: [Shortcut] = []
+    public internal(set) var trashedTasks: [BoardTask] = []
+    public internal(set) var archivedLists: [TaskList] = []
+    public internal(set) var archivedFolders: [Folder] = []
+
+    /// The open card's recurrence rule, loaded with the selection.
+    public internal(set) var recurrence: Recurrence?
+    public internal(set) var extraLists: [TaskList] = []
+    public internal(set) var assignees: [TaskAssignee] = []
+
     public init(
         database: Database,
         clock: any ClockProvider = SystemClock(),
@@ -285,6 +328,13 @@ public final class BoardViewModel {
         self.workflowRepository = WorkflowRepository(database: database, clock: clock)
         self.automationRepository = AutomationRepository(database: database, clock: clock)
         self.templateRepository = TemplateRepository(database: database, clock: clock)
+        self.structureRepository = StructureRepository(database: database, clock: clock)
+        self.membershipRepository = MembershipRepository(database: database, clock: clock)
+        self.recurrenceRepository = RecurrenceRepository(database: database, clock: clock)
+        self.sidebarRepository = SidebarRepository(database: database, clock: clock)
+        self.viewConfigRepository = ViewConfigRepository(database: database, clock: clock)
+        self.activityRepository = ActivityRepository(database: database)
+        self.workloadRepository = WorkloadRepository(database: database)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -316,7 +366,7 @@ public final class BoardViewModel {
         }
     }
 
-    private func reloadSnapshot() {
+    func reloadSnapshot() {
         loadSnapshot()
         applyQuery()
     }
@@ -359,6 +409,11 @@ public final class BoardViewModel {
             quickFilters = try presentationRepository.quickFilters(inBoard: selectedBoardID)
             swimlanes = try presentationRepository.swimlanes(inBoard: selectedBoardID)
             currentPersonID = try settings.currentPersonID
+            if let projectID = currentProjectID {
+                try loadStructure(projectID: projectID)
+                purgeExpiredTrash()
+                loadSidebar()
+            }
 
             // A selection outlives a reload only for cards that are still
             // there; one that has been trashed or moved off the board is no
@@ -468,11 +523,14 @@ public final class BoardViewModel {
 
     /// Runs the current query against the store and remembers which cards it
     /// matched. Called on every edit to the field and after every reload.
-    private func applyQuery() {
+    func applyQuery() {
         let combined = effectiveQuery
 
         guard !combined.isEmpty else {
-            matchingTaskIDs = nil
+            // A chosen list narrows the board even with no query typed: it is
+            // a place, not a filter, and the search field should stay empty
+            // while you are standing in it.
+            matchingTaskIDs = listMembership
             queryFailure = nil
             setShowsTrash(false)
             rebuildLanes()
@@ -488,7 +546,9 @@ public final class BoardViewModel {
             setShowsTrash(try TaskQueryParser.parse(combined).mentionsTrash)
 
             let matches = try taskRepository.tasks(matching: combined, inProject: projectID)
-            matchingTaskIDs = Set(matches.map(\.id))
+            // Both narrow: a query asked inside a list is asked of that list.
+            let matched = Set(matches.map(\.id))
+            matchingTaskIDs = listMembership.map { matched.intersection($0) } ?? matched
             queryFailure = nil
         } catch let error as QueryError {
             // Keep showing the last good result while the query is being
@@ -499,6 +559,16 @@ public final class BoardViewModel {
         }
 
         rebuildLanes()
+    }
+
+    /// The cards a chosen list shows — the ones that live in it and the ones
+    /// added to it from elsewhere — or `nil` when the whole space is on
+    /// screen, which is what a board has always shown.
+    private var listMembership: Set<String>? {
+        guard let selectedListID else { return nil }
+        let resident = snapshot?.columns.flatMap(\.tasks).filter { $0.listID == selectedListID } ?? []
+        let borrowed = extraListsByTask.filter { $0.value.contains { $0.id == selectedListID } }.keys
+        return Set(resident.map(\.id)).union(borrowed)
     }
 
     /// Works out the lanes for the cards currently on screen.
@@ -997,7 +1067,7 @@ public final class BoardViewModel {
 
     /// Every database call the views make comes through here, so no view has a
     /// `try` in it and no failure can reach the user as a crash.
-    private func perform(_ work: () throws -> Void) {
+    func perform(_ work: () throws -> Void) {
         do {
             try work()
             failure = nil
@@ -1082,6 +1152,11 @@ extension BoardViewModel {
         perform {
             try settings.setCurrentPerson(personID)
             currentPersonID = try settings.currentPersonID
+            if let projectID = currentProjectID {
+                try loadStructure(projectID: projectID)
+                purgeExpiredTrash()
+                loadSidebar()
+            }
             // `is:mine` means something different now, so anything asking it
             // has to be asked again.
             applyQuery()

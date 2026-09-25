@@ -6,6 +6,55 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 6
+
+### Milestone 6: structure and views
+- **Hierarchy**: Workspace → Space → Folder (optional) → List → Task. A project
+  *became* a space rather than being replaced by one — it already owned the
+  statuses, fields, rules and sprints a space owns — so no row moved and every
+  id still means what it meant. Every existing project gained one list holding
+  everything it had, so a file that has never made a second list reads exactly
+  as it did before. Spaces take a colour and an SF Symbol.
+- **Statuses per space, overridden per list.** Inheritance is the absence of an
+  override rather than a flag, so no list can claim to override and override
+  nothing.
+- **Several people on a card**, with a share of the estimate each. The first is
+  still `assignee_id`, so `is:mine`, the card's avatar and every query written
+  before this still read something true.
+- **One card, several lists.** A card has one home and can be shown anywhere
+  else; the panel says where, and an edit in any of them is the same card.
+- **Milestones**: drawn on the timeline as diamonds, because a date has no
+  length and a bar would claim one.
+- **Recurring cards**: daily, weekly (by weekday), monthly (by date or by
+  "the 2nd Tuesday"), yearly — on a schedule or after completion, with the
+  checklist, subtasks and status reset as asked. Finishing one produces the
+  next and leaves the finished one finished, so the history survives. A missed
+  fortnight catches up by one card, not fourteen.
+- **Six more views**, each remembering its own sort, grouping, filter and
+  columns *per place*: **Table** (editable cells, totals, CSV export),
+  **Workload** (capacity per person, red when over, drag to rebalance),
+  **Box** (per person, with a status breakdown), **Everything** (every space,
+  same filters), **Activity** (a feed derived from the file's own history
+  rather than a second log to keep in step), and **Mind Map** (a node graph
+  where adding a node creates a card and dragging one onto another makes it a
+  subtask).
+- **Sidebar**: favourites, pinned views, recently viewed, an archive that puts
+  things back, and a trash that says how many days each card has left. Cards
+  are removed thirty days after they are thrown away, counted from when that
+  happened rather than from when the card was last edited.
+
+### Fixed
+- **A pinned table header drew over its own first rows.** The same fault as
+  the lazy-stack one below: a pinned section header inside a view that scrolls
+  both ways mis-measures. The header is now a safe-area inset on a vertically
+  bounded scroll view.
+- **The mind map cost 297 MB at a thousand cards.** It is now bounded to a
+  hundred and fifty nodes, which is more than a map can usefully show, and it
+  says what it is leaving out. 297 MB → 96 MB.
+- **The trash countdown said 29 days the moment a card was thrown away.** It
+  truncated a part-day; it now rounds up, so the last day you can still
+  recover something does not read as zero.
+
 ## Unreleased — schema 5
 
 ### Milestone 2: the two views that were missing

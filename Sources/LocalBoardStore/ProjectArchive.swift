@@ -271,11 +271,22 @@ extension ProjectArchive {
             )
             try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
 
+            // The archive predates lists, and a card with no list has no home.
+            let listID = UUID().uuidString
+            try database.execute(
+                """
+                INSERT INTO list (id, project_id, folder_id, name, sort_order, created_at)
+                VALUES (?, ?, NULL, ?, ?, ?);
+                """,
+                [listID, projectID, projectName.isEmpty ? "Imported project" : projectName, SortOrder.step, now]
+            )
+
             let statusIDs = try restoreStatuses(projectID: projectID, boardID: boardID, database: database)
             let (personIDs, reused) = try restorePeople(in: database, now: now)
             let labelIDs = try restoreLabels(projectID: projectID, database: database)
             let taskIDs = try restoreTasks(
-                projectID: projectID, statusIDs: statusIDs, personIDs: personIDs, database: database, now: now
+                projectID: projectID, statusIDs: statusIDs, personIDs: personIDs,
+                listID: listID, database: database, now: now
             )
             try restoreAttachments(taskIDs: taskIDs, labelIDs: labelIDs, database: database)
 
@@ -397,6 +408,7 @@ extension ProjectArchive {
         projectID: String,
         statusIDs: [String: String],
         personIDs: [String: String],
+        listID: String,
         database: Database,
         now: Date
     ) throws -> [String: String] {
@@ -416,9 +428,9 @@ extension ProjectArchive {
                 """
                 INSERT INTO task (id, project_id, status_id, number, type, title, description_md,
                                   assignee_id, priority, start_date, due_date, estimate, sort_order,
-                                  trashed, flagged, flag_reason, status_changed_at,
+                                  trashed, flagged, flag_reason, status_changed_at, list_id,
                                   created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 [
                     taskID, projectID, statusID, task.number, task.type.rawValue, task.title,
@@ -426,7 +438,7 @@ extension ProjectArchive {
                     task.assigneeID.flatMap { personIDs[$0] }.sqlValue,
                     task.priority.rawValue, task.startDate.sqlValue, task.dueDate.sqlValue,
                     task.estimate.sqlValue, task.sortOrder, task.trashed, task.flagged, task.flagReason,
-                    (task.statusChangedAt ?? task.createdAt).sqlValue,
+                    (task.statusChangedAt ?? task.createdAt).sqlValue, listID,
                     task.createdAt, task.updatedAt, task.completedAt.sqlValue,
                 ]
             )

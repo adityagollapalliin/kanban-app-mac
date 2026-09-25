@@ -65,6 +65,17 @@ extension BoardRepository {
             )
             try BoardPresentationRepository(database: database).seedDefaults(forBoard: boardID)
 
+            // Every space starts with one list, because every card needs a
+            // home and a space with nowhere to put a card is a state to
+            // recover from rather than a state to be in.
+            try database.execute(
+                """
+                INSERT INTO list (id, project_id, folder_id, name, sort_order, created_at)
+                VALUES (?, ?, NULL, ?, ?, ?);
+                """,
+                [UUID().uuidString, projectID, trimmedName, SortOrder.step, now]
+            )
+
             for (index, starter) in [("To Do", StatusCategory.toDo), ("In Progress", .inProgress), ("Done", .done)].enumerated() {
                 try insertColumn(
                     boardID: boardID,
