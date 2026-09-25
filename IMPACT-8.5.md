@@ -364,3 +364,52 @@ that none is saved anywhere — is defensible but is not what was asked for, and
 it cannot be defended again next time the grammar grows.
 
 **This needs your decision before 8.5b starts.** It does not block 8.5a.
+
+---
+
+# Appendix C — Approved: the `syntax` column (conditions for 8.5b)
+
+Approved on 2026-09-25: add a `syntax` column defaulting to `simple`, so no
+existing filter is ever re-parsed under new rules. Five conditions came with
+it, recorded here so they are checked off in 8.5b rather than remembered.
+
+1. **Every stored query carries its syntax.** Audited below.
+2. **JSON export includes `syntax`.** An imported archive that lacks the field
+   treats every query as `simple` — the same default the migration uses, so a
+   backup written before 8.5b and restored after it behaves identically.
+3. **Never convert a filter automatically.** "Convert to JQL" is an explicit
+   action that previews the rewritten query *and* whether the result set
+   changes, before anything is saved.
+4. **The search bar stays `simple`.** Filters created in the advanced editor
+   default to `jql`.
+5. **Tests proving a `simple` filter containing JQL-like words is unaffected**
+   — the six strings in Appendix B, asserted to return the same cards before
+   and after 8.5b.
+
+## C.1 Condition 1, answered
+
+Of the eleven places named in the approval, **six exist and store query text
+today**, three do not exist yet, one stores no query of its own, and one is
+transient. There is also one nobody listed.
+
+| Named in the approval | State | What 8.5b does |
+|---|---|---|
+| Swimlane queries | `swimlane.query` | add `syntax`, default `simple` |
+| Quick filters | `quick_filter.query` | add `syntax`, default `simple` |
+| Boards from a query | `board.filter_query` | add `filter_syntax`, default `simple` |
+| Dashboard widgets | `dashboard_widget.query` | add `syntax`, default `simple` |
+| Goals | `goal.query` | add `syntax`, default `simple` |
+| Saved filters | `saved_view.query` | add `syntax`, default `simple` |
+| **Card colour rules** | **No query of their own** — `board.color_view_id` points at a saved view, so the colour rule inherits that view's syntax | nothing to add; covered through `saved_view` |
+| **Automation conditions** | **Do not exist** (see A.3) | born with a `syntax` column in 8.5f |
+| **SLA queues** | **Do not exist** | born with a `syntax` column in 8.5f |
+| **Filter digests** | **Do not exist** | born with a `syntax` column in 8.5f |
+| **CLI query input** | Transient, never stored | `--syntax simple\|jql`, defaulting to `simple` |
+| *(not named)* **Per-view remembered filter** | `view_config.filter_query` | add `syntax`, default `simple` |
+
+So: **seven columns gain a syntax**, three future tables are born with one, the
+colour rule needs none, and the CLI gains a flag.
+
+The rule going forward, worth stating once: **a column holding query text is
+incomplete without a column saying which language it is in.** Any table added
+after this point that stores a query must carry its syntax from birth.
