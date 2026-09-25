@@ -46,6 +46,37 @@ struct TaskQueryCompiler {
         return Compiled(whereClause: clause, parameters: parameters)
     }
 
+    /// `ORDER BY due DESC` as SQL, or nil when the query did not ask.
+    ///
+    /// Built from the same `columnName` the comparisons use, so a field can
+    /// never be orderable by one spelling and filterable by another. Nothing
+    /// is interpolated that did not come from the enumeration.
+    func orderClause(_ order: [QueryOrder]) throws -> String? {
+        guard !order.isEmpty else { return nil }
+
+        var parts: [String] = []
+        for clause in order {
+            let column: String
+            switch clause.field {
+            case .due, .start, .created, .updated, .completed, .priority, .type, .points, .title:
+                column = "task.\(try columnName(for: clause.field))"
+            case .key:
+                // The number, not the text: WORK-9 sorts before WORK-10.
+                column = "task.number"
+            default:
+                throw QueryError(
+                    "`\(clause.field.rawValue)` lives in another table, so this cannot order by it yet."
+                )
+            }
+
+            // Unset dates sort last whichever way round it is, because a card
+            // with no due date is not the most urgent thing on the board.
+            let nulls = clause.field.isDate ? "(\(column) IS NULL), " : ""
+            parts.append("\(nulls)\(column) \(clause.ascending ? "ASC" : "DESC")")
+        }
+        return parts.joined(separator: ", ")
+    }
+
 
     // MARK: - Fragments
 
@@ -79,7 +110,151 @@ struct TaskQueryCompiler {
 
         case .customField(let name, let comparison, let value):
             return try customFragment(name: name, comparison: comparison, value: value, into: &parameters)
+
+        // MARK: The JQL-only shapes
+        //
+        // Each is expressed in terms of the fragments above rather than as new
+        // SQL: `IN` is a run of equalities, `IS EMPTY` is the `none` path that
+        // has always existed. One place decides what a field compares against,
+        // so a new operator cannot disagree with the old ones about it.
+
+        case .membership(let target, let values, let negated):
+            guard !values.isEmpty else { return negated ? "1" : "0" }
+            let parts = try values.map { value in
+                try fragment(target: target, comparison: .equals, value: value, into: &parameters)
+            }
+            let any = "(" + parts.joined(separator: " OR ") + ")"
+            return negated ? "NOT \(any)" : any
+
+        case .emptiness(let target, let negated):
+            return try fragment(
+                target: target,
+                comparison: negated ? .notEquals : .equals,
+                value: .none,
+                into: &parameters
+            )
+
+        case .contains(let target, let text):
+            return try containsFragment(target: target, text: text, into: &parameters)
+
+        case .history(let clause):
+            return try historyFragment(clause, into: &parameters)
         }
+    }
+
+    /// Dispatches to the field or custom-field path, whichever the target is.
+    private func fragment(
+        target: QueryTarget,
+        comparison: QueryComparison,
+        value: QueryValue,
+        into parameters: inout [SQLValue]
+    ) throws -> String {
+        switch target {
+        case .field(let field):
+            return try fragment(field: field, comparison: comparison, value: value, into: &parameters)
+        case .custom(let name):
+            return try customFragment(name: name, comparison: comparison, value: value, into: &parameters)
+        }
+    }
+
+    /// `title ~ login` — contains, matched as a substring.
+    ///
+    /// Deliberately `LIKE` rather than the full-text index: `~` is written to
+    /// find a fragment of a word, and FTS matches whole tokens with a prefix.
+    /// `title ~ ogin` finds nothing through FTS and the card through this.
+    private func containsFragment(
+        target: QueryTarget,
+        text: String,
+        into parameters: inout [SQLValue]
+    ) throws -> String {
+        let pattern = "%" + Self.escapingLikeWildcards(text) + "%"
+
+        switch target {
+        case .field(let field):
+            switch field {
+            case .title:
+                parameters.append(.text(pattern))
+                return "task.title LIKE ? ESCAPE '\\'"
+            case .status, .assignee, .label, .version, .epic, .sprint, .key:
+                // These are names held in other tables; comparing them loosely
+                // is the same join with LIKE in place of `=`.
+                let exact = try fragment(target: target, comparison: .equals, value: .text(text), into: &parameters)
+                return exact.replacingOccurrences(of: "name = ? COLLATE NOCASE", with: "name LIKE '%' || ? || '%' COLLATE NOCASE")
+            default:
+                throw QueryError("`~` looks inside text, and `\(field.rawValue)` does not hold any.")
+            }
+
+        case .custom(let name):
+            guard let kind = try customFieldKinds()[name.lowercased()] else {
+                throw QueryError("there is no field called `\(name)` in this project.")
+            }
+            guard kind.storage == .text else {
+                throw QueryError("`~` looks inside text, and `\(name)` does not hold any.")
+            }
+            parameters.append(.text(projectID))
+            parameters.append(.text(name))
+            parameters.append(.text(pattern))
+            return """
+                task.id IN (
+                    SELECT custom_field_value.task_id FROM custom_field_value
+                    JOIN custom_field ON custom_field.id = custom_field_value.field_id
+                    WHERE custom_field.project_id = ? AND custom_field.name = ? COLLATE NOCASE
+                      AND custom_field_value.text_value LIKE ? ESCAPE '\\')
+                """
+        }
+    }
+
+    /// `status WAS "In Progress"`, `status CHANGED FROM x TO y DURING (a, b)`.
+    ///
+    /// Answered from `status_change`, which has recorded every move since
+    /// schema 3 and was backfilled to each card's creation — so this is a real
+    /// answer about the whole of a card's life, not only since the feature
+    /// arrived. No other field has ever been recorded, which is why the parser
+    /// refuses to ask about one.
+    private func historyFragment(
+        _ clause: HistoryClause,
+        into parameters: inout [SQLValue]
+    ) throws -> String {
+        var conditions: [String] = ["status_change.task_id = task.id"]
+
+        func statusClause(_ value: QueryValue, column: String) throws {
+            guard case .text(let name) = value else {
+                throw QueryError("`\(column)` needs a column name, like \"In Progress\".")
+            }
+            parameters.append(.text(projectID))
+            parameters.append(.text(name))
+            conditions.append("""
+                status_change.\(column) IN (
+                    SELECT id FROM status WHERE project_id = ? AND name = ? COLLATE NOCASE)
+                """)
+        }
+
+        switch clause.kind {
+        case .was:
+            guard let value = clause.value else {
+                throw QueryError("`WAS` needs a status.")
+            }
+            try statusClause(value, column: "to_status_id")
+
+        case .changed:
+            if let from = clause.from { try statusClause(from, column: "from_status_id") }
+            if let to = clause.to { try statusClause(to, column: "to_status_id") }
+            // A bare `status CHANGED` is "moved at all", which every card has
+            // done once at creation — so it means "moved more than once".
+            if clause.from == nil, clause.to == nil {
+                conditions.append("status_change.from_status_id IS NOT NULL")
+            }
+        }
+
+        if let start = clause.duringStart, let end = clause.duringEnd {
+            parameters.append(.real(start.resolve(now: now, calendar: calendar).timeIntervalSince1970))
+            parameters.append(.real(end.resolve(now: now, calendar: calendar).timeIntervalSince1970))
+            conditions.append("status_change.at >= ?")
+            conditions.append("status_change.at <= ?")
+        }
+
+        let exists = "EXISTS (SELECT 1 FROM status_change WHERE " + conditions.joined(separator: " AND ") + ")"
+        return clause.negated ? "NOT \(exists)" : exists
     }
 
     /// `cf:Size >= 3`.
@@ -187,6 +362,75 @@ struct TaskQueryCompiler {
         return kinds
     }
 
+    /// Resolves a function used where a value is expected.
+    ///
+    /// Each one answers a question about *now* — who I am, which sprints are
+    /// running, what has shipped — so none of them can be folded into the
+    /// stored query. They are resolved every time it is compiled, which is why
+    /// a saved filter using `currentUser()` means the right thing on a Mac it
+    /// was not written on.
+    private func fragment(
+        field: QueryField,
+        comparison: QueryComparison,
+        function: QueryFunction,
+        into parameters: inout [SQLValue]
+    ) throws -> String {
+        let negate = comparison == .notEquals
+
+        func wrap(_ clause: String) -> String { negate ? "NOT (\(clause))" : clause }
+
+        switch (field, function) {
+        case (.assignee, .currentUser):
+            // Nobody chosen in Settings means `currentUser()` matches nothing,
+            // exactly as `is:mine` does. An unanswered question has no answers.
+            guard let currentPersonID else { return negate ? "1" : "0" }
+            parameters.append(.text(currentPersonID))
+            return wrap("task.assignee_id = ?")
+
+        case (.sprint, .openSprints), (.sprint, .closedSprints):
+            let state = function == .openSprints ? SprintState.active : .complete
+            parameters.append(.text(projectID))
+            parameters.append(.integer(Int64(state.rawValue)))
+            return wrap("""
+                task.sprint_id IN (
+                    SELECT id FROM sprint WHERE project_id = ? AND state = ?)
+                """)
+
+        case (.version, .releasedVersions), (.version, .unreleasedVersions):
+            parameters.append(.text(projectID))
+            parameters.append(.integer(function == .releasedVersions ? 1 : 0))
+            return wrap("""
+                task.version_id IN (
+                    SELECT id FROM version WHERE project_id = ? AND released = ?)
+                """)
+
+        case (.key, .linkedIssues(let key)):
+            // Both ends of the link, because "linked to WORK-12" does not
+            // depend on which card the link was made from.
+            parameters.append(.text(projectID))
+            parameters.append(.text(key.uppercased()))
+            parameters.append(.text(projectID))
+            parameters.append(.text(key.uppercased()))
+            return wrap("""
+                (task.id IN (
+                    SELECT task_link.other_task_id FROM task_link
+                    JOIN task AS anchor ON anchor.id = task_link.task_id
+                    JOIN project ON project.id = anchor.project_id
+                    WHERE anchor.project_id = ? AND project.key || '-' || anchor.number = ?)
+                 OR task.id IN (
+                    SELECT task_link.task_id FROM task_link
+                    JOIN task AS anchor ON anchor.id = task_link.other_task_id
+                    JOIN project ON project.id = anchor.project_id
+                    WHERE anchor.project_id = ? AND project.key || '-' || anchor.number = ?))
+                """)
+
+        default:
+            throw QueryError(
+                "`\(function.described)` cannot be used with `\(field.rawValue)`."
+            )
+        }
+    }
+
     private func fragment(for flag: QueryFlag, into parameters: inout [SQLValue]) -> String {
         switch flag {
         case .done:
@@ -238,6 +482,16 @@ struct TaskQueryCompiler {
         value: QueryValue,
         into parameters: inout [SQLValue]
     ) throws -> String {
+        // A function standing in for a value is resolved first, against the
+        // clock, the settings or the database. Date functions never reach here
+        // — the parser folds those into an ordinary relative date, so there is
+        // still one path for dates.
+        if case .function(let function) = value {
+            return try fragment(
+                field: field, comparison: comparison, function: function, into: &parameters
+            )
+        }
+
         // `epic = none` is about the link, and `version = none` about the
         // release; both live on the task itself, so the generic presence path
         // below handles them once `columnName` knows their columns.

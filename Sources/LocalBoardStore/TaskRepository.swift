@@ -75,9 +75,13 @@ public struct TaskRepository {
     public func tasks(
         matching source: String,
         inProject projectID: String,
-        acrossProjects: Bool = false
+        acrossProjects: Bool = false,
+        syntax: QuerySyntax = .simple
     ) throws -> [BoardTask] {
-        let filter = try TaskQueryParser.parse(source)
+        // `.simple` by default, so every existing caller and every filter
+        // saved before schema 10 is read by exactly the parser it always was.
+        let parsed = try TaskQueryParser.parse(source, syntax: syntax)
+        let filter = parsed.filter
         let compiler = TaskQueryCompiler(
             database: database,
             projectID: projectID,
@@ -85,6 +89,7 @@ public struct TaskRepository {
             currentPersonID: try AppSettings(database: database).currentPersonID
         )
         let compiled = try compiler.compile(filter)
+        let ordering = try compiler.orderClause(parsed.order)
 
         let trashClause = filter.mentionsTrash ? "" : " AND task.trashed = 0"
 
@@ -94,14 +99,21 @@ public struct TaskRepository {
         let projectClause = acrossProjects ? "1" : "task.project_id = ?"
         let leading: [SQLValue] = acrossProjects ? [] : [.text(projectID)]
 
+        // A query that said how to order gets that ordering; one that did not
+        // gets the order this app has always used. The simple language has no
+        // way to ask, so it always takes the second.
+        let order = ordering ?? """
+            task.priority DESC,
+                     (task.due_date IS NULL),
+                     task.due_date,
+                     task.updated_at DESC
+            """
+
         return try database.query(
             """
             SELECT task.* FROM task
             WHERE \(projectClause) AND \(compiled.whereClause)\(trashClause)
-            ORDER BY task.priority DESC,
-                     (task.due_date IS NULL),
-                     task.due_date,
-                     task.updated_at DESC;
+            ORDER BY \(order);
             """,
             leading + compiled.parameters
         ).map(BoardTask.init(row:))

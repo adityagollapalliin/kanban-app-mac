@@ -28,6 +28,20 @@ public indirect enum TaskFilter: Sendable, Equatable {
     case customField(String, QueryComparison, QueryValue)
     /// Free text, matched against the full-text index.
     case text(String)
+
+    // MARK: Written only by the JQL grammar
+    //
+    // The simple parser never produces any of these, which is what keeps its
+    // saved filters compiling to exactly the SQL they always did.
+
+    /// `priority IN (high, highest)`, or `NOT IN`.
+    case membership(QueryTarget, [QueryValue], negated: Bool)
+    /// `assignee IS EMPTY`, or `IS NOT EMPTY`.
+    case emptiness(QueryTarget, negated: Bool)
+    /// `title ~ login` — contains, as JQL spells it.
+    case contains(QueryTarget, String)
+    /// `status WAS "In Progress"`, `status CHANGED FROM x TO y DURING (a, b)`.
+    case history(HistoryClause)
 }
 
 extension TaskFilter {
@@ -59,7 +73,7 @@ public enum QueryField: String, Sendable, CaseIterable {
     /// The reason written on a flag: `flag = "waiting on legal"`.
     case flag
 
-    var isDate: Bool {
+    public var isDate: Bool {
         switch self {
         case .due, .start, .created, .updated, .completed: true
         default: false
@@ -67,7 +81,7 @@ public enum QueryField: String, Sendable, CaseIterable {
     }
 
     /// Fields compared as plain numbers rather than as dates or vocabularies.
-    var isNumeric: Bool {
+    public var isNumeric: Bool {
         switch self {
         case .points, .days: true
         default: false
@@ -81,6 +95,9 @@ public enum QueryComparison: Sendable, Equatable {
 
 public enum QueryValue: Sendable, Equatable {
     case date(RelativeDate)
+    /// `currentUser()`, `startOfWeek(-1)`, `openSprints()`. Resolved against
+    /// the clock, the settings or the database when the query is compiled.
+    case function(QueryFunction)
     case priority(Priority)
     case type(TaskType)
     case text(String)
@@ -107,6 +124,8 @@ public enum QueryFlag: String, Sendable, CaseIterable {
 public enum RelativeDate: Sendable, Equatable {
     case absolute(year: Int, month: Int, day: Int)
     case daysFromToday(Int)
+    /// `startOfWeek(-1)`, `now()`. Written only by the JQL grammar.
+    case function(QueryFunction)
 
     /// Reads the spellings the query language accepts: `2026-10-01`, `today`,
     /// `tomorrow`, `yesterday`, `+7d`, `-2w`.
@@ -130,6 +149,41 @@ public enum RelativeDate: Sendable, Equatable {
         case .daysFromToday(let offset):
             let today = calendar.startOfDay(for: now)
             return calendar.date(byAdding: .day, value: offset, to: today) ?? today
+        case .function(let function):
+            return Self.resolve(function, now: now, calendar: calendar)
+        }
+    }
+
+    /// Where a JQL date function lands.
+    ///
+    /// The *end* of a period is the last instant of it rather than the start
+    /// of the next one, so `due <= endOfWeek()` includes work due on Sunday
+    /// evening instead of quietly dropping it.
+    static func resolve(_ function: QueryFunction, now: Date, calendar: Calendar) -> Date {
+        func interval(_ component: Calendar.Component, _ offset: Int) -> DateInterval? {
+            guard let moved = calendar.date(byAdding: component, value: offset, to: now) else { return nil }
+            return calendar.dateInterval(of: component, for: moved)
+        }
+
+        switch function {
+        case .now:
+            return now
+        case .startOfDay(let offset):
+            return interval(.day, offset)?.start ?? calendar.startOfDay(for: now)
+        case .endOfDay(let offset):
+            return (interval(.day, offset)?.end ?? now).addingTimeInterval(-1)
+        case .startOfWeek(let offset):
+            return interval(.weekOfYear, offset)?.start ?? calendar.startOfDay(for: now)
+        case .endOfWeek(let offset):
+            return (interval(.weekOfYear, offset)?.end ?? now).addingTimeInterval(-1)
+        case .startOfMonth(let offset):
+            return interval(.month, offset)?.start ?? calendar.startOfDay(for: now)
+        case .endOfMonth(let offset):
+            return (interval(.month, offset)?.end ?? now).addingTimeInterval(-1)
+        default:
+            // Not a date at all — the parser refuses these where a date is
+            // expected, so reaching here would be a bug rather than input.
+            return now
         }
     }
 }
@@ -144,17 +198,42 @@ public struct QueryError: Error, Equatable, LocalizedError, Sendable {
 
 public enum TaskQueryParser {
 
+    /// The original language. Unchanged, and deliberately kept as the
+    /// signature every existing caller already uses.
     public static func parse(_ source: String) throws -> TaskFilter {
-        var tokens = Tokenizer.tokenize(source)
-        guard !tokens.isEmpty else { return .all }
+        try parse(source, syntax: .simple).filter
+    }
 
-        var parser = Parser(tokens: tokens)
-        let filter = try parser.parseExpression()
+    /// Reads a query in whichever language it was written in.
+    ///
+    /// One parser with a mode rather than two parsers: the fields, values,
+    /// flags and brackets are identical in both languages, and a second copy
+    /// of that would drift. Every JQL-only production is gated on the mode, so
+    /// a `.simple` parse cannot reach one — which is what the regression
+    /// baseline checks, query by query.
+    public static func parse(_ source: String, syntax: QuerySyntax) throws -> ParsedQuery {
+        var tokens = Tokenizer.tokenize(source, syntax: syntax)
+        guard !tokens.isEmpty else { return ParsedQuery(filter: .all) }
+
+        var parser = Parser(tokens: tokens, syntax: syntax)
+
+        // `ORDER BY due` on its own is every card, in that order — there is no
+        // filter in front of it to parse.
+        let startsWithOrder: Bool
+        if syntax == .jql, case .word(let first) = tokens[0], first.lowercased() == "order" {
+            startsWithOrder = true
+        } else {
+            startsWithOrder = false
+        }
+
+        let filter = startsWithOrder ? TaskFilter.all : try parser.parseExpression()
+        let order = try parser.parseOrderBy()
+
         guard parser.isAtEnd else {
             throw QueryError("unexpected `\(parser.peekText)` at the end of the query.")
         }
         tokens.removeAll()
-        return filter
+        return ParsedQuery(filter: filter, order: order)
     }
 
     // MARK: Tokens
@@ -163,6 +242,13 @@ public enum TaskQueryParser {
         case word(String)
         case quoted(String)
         case comparison(QueryComparison)
+        /// `~` — contains. Tokenised only in the JQL grammar, because in the
+        /// simple one it is an ordinary character in a word somebody is
+        /// searching for.
+        case tilde
+        /// `,` — a separator in JQL's lists and ORDER BY. In the simple
+        /// grammar it is an ordinary character inside a word.
+        case comma
         case colon
         case leftParen
         case rightParen
@@ -179,6 +265,8 @@ public enum TaskQueryParser {
                 case .equals: "="
                 case .notEquals: "!="
                 }
+            case .tilde: "~"
+            case .comma: ","
             case .colon: ":"
             case .leftParen: "("
             case .rightParen: ")"
@@ -187,7 +275,7 @@ public enum TaskQueryParser {
     }
 
     enum Tokenizer {
-        static func tokenize(_ source: String) -> [Token] {
+        static func tokenize(_ source: String, syntax: QuerySyntax = .simple) -> [Token] {
             var tokens: [Token] = []
             var characters = Array(source)
             var index = 0
@@ -218,6 +306,10 @@ public enum TaskQueryParser {
                     tokens.append(.comparison(.equals)); index += 1
                 } else if character == "!" && peek(1) == "=" {
                     tokens.append(.comparison(.notEquals)); index += 2
+                } else if character == "~" && syntax == .jql {
+                    tokens.append(.tilde); index += 1
+                } else if character == "," && syntax == .jql {
+                    tokens.append(.comma); index += 1
                 } else if character == "\"" {
                     // A quoted phrase runs to the next quote, or to the end if
                     // the user has not typed the closing one yet — search
@@ -235,6 +327,7 @@ public enum TaskQueryParser {
                     while index < characters.count {
                         let next = characters[index]
                         if next.isWhitespace || "()<>=!:\"".contains(next) { break }
+                        if (next == "~" || next == ",") && syntax == .jql { break }
                         value.append(next)
                         index += 1
                     }
@@ -251,12 +344,22 @@ public enum TaskQueryParser {
 
     struct Parser {
         let tokens: [Token]
+        var syntax: QuerySyntax = .simple
         var position = 0
+
+        var isJQL: Bool { syntax == .jql }
 
         var isAtEnd: Bool { position >= tokens.count }
         var peekText: String { isAtEnd ? "" : tokens[position].text }
 
         func peek() -> Token? { isAtEnd ? nil : tokens[position] }
+
+        /// The token `offset` places further on, for the two-word operators
+        /// JQL spells — `NOT IN`, and nothing else so far.
+        func peek(_ offset: Int) -> Token? {
+            let target = position + offset
+            return target < tokens.count ? tokens[target] : nil
+        }
 
         mutating func advance() -> Token? {
             guard !isAtEnd else { return nil }
@@ -266,6 +369,319 @@ public enum TaskQueryParser {
 
         mutating func parseExpression() throws -> TaskFilter {
             try parseOr()
+        }
+
+        /// `ORDER BY due DESC, priority` — JQL only.
+        ///
+        /// In the simple language `ORDER` is a word somebody is searching for,
+        /// and this returns nothing without consuming a token.
+        mutating func parseOrderBy() throws -> [QueryOrder] {
+            guard isJQL, case .word(let word)? = peek(), word.lowercased() == "order" else {
+                return []
+            }
+            _ = advance()
+
+            guard case .word(let by)? = peek(), by.lowercased() == "by" else {
+                throw QueryError("`ORDER` has to be followed by `BY`, as in `ORDER BY due`.")
+            }
+            _ = advance()
+
+            var clauses: [QueryOrder] = []
+            repeat {
+                guard case .word(let name)? = advance() else {
+                    throw QueryError("`ORDER BY` needs a field to order by.")
+                }
+                guard let field = QueryField(rawValue: name.lowercased()) else {
+                    throw QueryError("`\(name)` is not a field this can order by.")
+                }
+
+                var ascending = true
+                if case .word(let direction)? = peek(),
+                   ["asc", "desc", "ascending", "descending"].contains(direction.lowercased()) {
+                    _ = advance()
+                    ascending = direction.lowercased().hasPrefix("asc")
+                }
+                clauses.append(QueryOrder(field: field, ascending: ascending))
+
+                if case .comma? = peek() {
+                    _ = advance()
+                    continue
+                }
+                break
+            } while true
+
+            return clauses
+        }
+
+        /// The JQL operators that follow a field or `cf:` name.
+        ///
+        /// Returns nil when the next tokens are not one of them, so the caller
+        /// falls through to the comparison it has always parsed.
+        mutating func parseJQLOperator(on target: QueryTarget) throws -> TaskFilter? {
+            guard isJQL, case .word(let word)? = peek() else { return nil }
+
+            switch word.lowercased() {
+            case "in", "not":
+                var negated = false
+                if word.lowercased() == "not" {
+                    guard case .word(let next)? = peek(1), next.lowercased() == "in" else {
+                        return nil   // `not` here belongs to somebody else.
+                    }
+                    negated = true
+                    _ = advance()
+                }
+                _ = advance()
+                return .membership(target, try parseValueList(for: target), negated: negated)
+
+            case "is":
+                // `assignee IS EMPTY`. `is:mine` is a different thing entirely
+                // and is handled before this is ever reached.
+                _ = advance()
+                var negated = false
+                if case .word(let next)? = peek(), next.lowercased() == "not" {
+                    _ = advance()
+                    negated = true
+                }
+                guard case .word(let empty)? = advance(),
+                      ["empty", "null"].contains(empty.lowercased()) else {
+                    throw QueryError("`\(target.described) IS` has to be followed by `EMPTY`.")
+                }
+                return .emptiness(target, negated: negated)
+
+            case "was":
+                _ = advance()
+                return .history(try parseWas(target: target, negated: false))
+
+            case "changed":
+                _ = advance()
+                return .history(try parseChanged(target: target, negated: false))
+
+            default:
+                return nil
+            }
+        }
+
+        mutating func parseValueList(for target: QueryTarget) throws -> [QueryValue] {
+            // `key IN linkedIssues(WORK-12)` — a function standing in for the
+            // list, which is how JQL spells the set-valued ones.
+            if case .word(let word)? = peek() {
+                let probe = position
+                _ = advance()
+                if let function = try functionIfPresent(word) {
+                    return [.function(function)]
+                }
+                position = probe
+            }
+
+            guard case .leftParen? = peek() else {
+                throw QueryError("`IN` needs a list in brackets, like `(high, highest)`.")
+            }
+            _ = advance()
+
+            var values: [QueryValue] = []
+            while let token = peek() {
+                if case .rightParen = token { break }
+                if case .comma = token { _ = advance(); continue }
+                guard let next = advance() else { break }
+                let raw = next.text
+                if raw.isEmpty { continue }
+                values.append(try value(raw, for: target))
+            }
+
+            guard case .rightParen? = peek() else {
+                throw QueryError("the list after `IN` is never closed.")
+            }
+            _ = advance()
+
+            guard !values.isEmpty else {
+                throw QueryError("the list after `IN` is empty.")
+            }
+            return values
+        }
+
+        mutating func parseWas(target: QueryTarget, negated: Bool) throws -> HistoryClause {
+            guard case .field(.status) = target else {
+                throw QueryError("only `status` has a recorded history to ask `WAS` about.")
+            }
+            guard let token = advance() else {
+                throw QueryError("`WAS` needs something to have been.")
+            }
+            var clause = HistoryClause(
+                target: target, kind: .was,
+                value: try value(token.text, for: target), negated: negated
+            )
+            try parseDuring(into: &clause)
+            return clause
+        }
+
+        mutating func parseChanged(target: QueryTarget, negated: Bool) throws -> HistoryClause {
+            guard case .field(.status) = target else {
+                throw QueryError("only `status` has a recorded history to ask `CHANGED` about.")
+            }
+            var clause = HistoryClause(target: target, kind: .changed, negated: negated)
+
+            while case .word(let word)? = peek() {
+                switch word.lowercased() {
+                case "from":
+                    _ = advance()
+                    guard let token = advance() else {
+                        throw QueryError("`CHANGED FROM` needs a status.")
+                    }
+                    clause.from = try value(token.text, for: target)
+                case "to":
+                    _ = advance()
+                    guard let token = advance() else {
+                        throw QueryError("`CHANGED TO` needs a status.")
+                    }
+                    clause.to = try value(token.text, for: target)
+                case "during":
+                    try parseDuring(into: &clause)
+                default:
+                    return clause
+                }
+            }
+            return clause
+        }
+
+        mutating func parseDuring(into clause: inout HistoryClause) throws {
+            guard case .word(let word)? = peek(), word.lowercased() == "during" else { return }
+            _ = advance()
+
+            guard case .leftParen? = peek() else {
+                throw QueryError("`DURING` needs two dates in brackets, like `(-1w, now())`.")
+            }
+            _ = advance()
+
+            var dates: [RelativeDate] = []
+            while let token = peek() {
+                if case .rightParen = token { break }
+                if case .comma = token { _ = advance(); continue }
+                guard let next = advance() else { break }
+                let raw = next.text
+                if raw.isEmpty { continue }
+                // `now()` and the startOf/endOf family arrive as a word
+                // followed by brackets, so they are read as functions first.
+                if let function = try functionIfPresent(raw), function.isDate {
+                    dates.append(.function(function))
+                } else if let parsed = RelativeDate.parse(raw) {
+                    dates.append(parsed)
+                } else {
+                    throw QueryError("`\(raw)` is not a date `DURING` can use.")
+                }
+            }
+
+            guard case .rightParen? = peek() else {
+                throw QueryError("the brackets after `DURING` are never closed.")
+            }
+            _ = advance()
+
+            guard dates.count == 2 else {
+                throw QueryError("`DURING` takes two dates — a start and an end.")
+            }
+            clause.duringStart = dates[0]
+            clause.duringEnd = dates[1]
+        }
+
+        /// A function call, when the word is one and brackets follow.
+        mutating func functionIfPresent(_ word: String) throws -> QueryFunction? {
+            guard isJQL else { return nil }
+            let lowered = word.lowercased()
+            let known = [
+                "currentuser", "now", "startofday", "endofday", "startofweek",
+                "endofweek", "startofmonth", "endofmonth", "opensprints",
+                "closedsprints", "releasedversions", "unreleasedversions", "linkedissues",
+            ]
+            guard known.contains(lowered) else { return nil }
+            guard case .leftParen? = peek() else {
+                throw QueryError("`\(word)` is a function and needs brackets, as in `\(word)()`.")
+            }
+            _ = advance()
+
+            var argument = ""
+            while let token = peek() {
+                if case .rightParen = token { break }
+                guard let next = advance() else { break }
+                argument += next.text
+            }
+            guard case .rightParen? = peek() else {
+                throw QueryError("the brackets after `\(word)` are never closed.")
+            }
+            _ = advance()
+
+            func offset() throws -> Int {
+                let trimmed = argument.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return 0 }
+                guard let number = Int(trimmed) else {
+                    throw QueryError("`\(word)` takes a whole number of periods, like `\(word)(-1)`.")
+                }
+                return number
+            }
+
+            switch lowered {
+            case "currentuser": return .currentUser
+            case "now": return .now
+            case "startofday": return .startOfDay(try offset())
+            case "endofday": return .endOfDay(try offset())
+            case "startofweek": return .startOfWeek(try offset())
+            case "endofweek": return .endOfWeek(try offset())
+            case "startofmonth": return .startOfMonth(try offset())
+            case "endofmonth": return .endOfMonth(try offset())
+            case "opensprints": return .openSprints
+            case "closedsprints": return .closedSprints
+            case "releasedversions": return .releasedVersions
+            case "unreleasedversions": return .unreleasedVersions
+            case "linkedissues":
+                let key = argument.trimmingCharacters(in: .whitespaces)
+                guard !key.isEmpty else {
+                    throw QueryError("`linkedIssues` needs a card's key, like `linkedIssues(WORK-12)`.")
+                }
+                return .linkedIssues(key)
+            default: return nil
+            }
+        }
+
+        /// Reads one value, in whatever way the target expects it.
+        mutating func value(_ raw: String, for target: QueryTarget) throws -> QueryValue {
+            if let function = try functionIfPresent(raw) {
+                // A date function where a date is wanted becomes an ordinary
+                // relative date, so everything downstream — the compiler, the
+                // saved-view round trip — keeps one path for dates.
+                if function.isDate, case .field(let field) = target, field.isDate {
+                    return .date(.function(function))
+                }
+                return .function(function)
+            }
+
+            let lowered = raw.lowercased()
+            if lowered == "none" || lowered == "null" { return .none }
+
+            guard case .field(let field) = target else { return .text(raw) }
+
+            if field.isDate {
+                guard let parsed = RelativeDate.parse(raw) else {
+                    throw QueryError("`\(field.rawValue)` holds dates, and `\(raw)` is not one.")
+                }
+                return .date(parsed)
+            }
+            if field.isNumeric {
+                guard let number = Double(raw) else {
+                    throw QueryError("`\(field.rawValue)` holds numbers, and `\(raw)` is not one.")
+                }
+                return .number(number)
+            }
+            if field == .priority {
+                guard let priority = Self.priority(named: lowered) else {
+                    throw QueryError("`\(raw)` is not a priority.")
+                }
+                return .priority(priority)
+            }
+            if field == .type {
+                guard let type = Self.type(named: lowered) else {
+                    throw QueryError("`\(raw)` is not a kind of card.")
+                }
+                return .type(type)
+            }
+            return .text(raw)
         }
 
         mutating func parseOr() throws -> TaskFilter {
@@ -287,6 +703,10 @@ public enum TaskQueryParser {
                 if case .word(let word) = token {
                     let lowered = word.lowercased()
                     if lowered == "or" { break }
+                    // `ORDER BY` ends the matching part of a JQL query. In the
+                    // simple language it is a word to search for and this does
+                    // not fire.
+                    if isJQL, lowered == "order" { break }
                     if lowered == "and" { _ = advance() }
                 }
                 if isAtEnd { break }
@@ -322,7 +742,7 @@ public enum TaskQueryParser {
             case .rightParen:
                 throw QueryError("a `)` here has no matching `(`.")
 
-            case .comparison, .colon:
+            case .comparison, .colon, .tilde, .comma:
                 throw QueryError("`\(token.text)` needs a field in front of it, like `due < +7d`.")
 
             case .quoted(let value):
@@ -346,6 +766,17 @@ public enum TaskQueryParser {
                     throw QueryError("`cf:` needs a field name, like `cf:Size >= 3`.")
                 }
 
+                // IN, IS EMPTY and ~ come before the comparison, because in
+                // JQL they take the place of one.
+                if let jql = try parseJQLOperator(on: .custom(name)) { return jql }
+                if case .tilde? = peek() {
+                    _ = advance()
+                    guard let token = advance() else {
+                        throw QueryError("`cf:\(name) ~` needs something to look for.")
+                    }
+                    return .contains(.custom(name), token.text)
+                }
+
                 let comparison: QueryComparison
                 switch peek() {
                 case .comparison(let parsed):
@@ -362,9 +793,12 @@ public enum TaskQueryParser {
                     throw QueryError("`cf:\(name)` is missing the value to compare against.")
                 }
                 let raw = valueToken.text
-                let value: QueryValue = (raw.lowercased() == "none" || raw.lowercased() == "null")
-                    ? .none
-                    : .text(raw)
+                let value: QueryValue
+                if isJQL {
+                    value = try self.value(raw, for: .custom(name))
+                } else {
+                    value = (raw.lowercased() == "none" || raw.lowercased() == "null") ? .none : .text(raw)
+                }
                 return .customField(name, comparison, value)
             }
 
@@ -381,6 +815,15 @@ public enum TaskQueryParser {
 
             guard let field = QueryField(rawValue: lowered) else {
                 return .text(word)
+            }
+
+            if let jql = try parseJQLOperator(on: .field(field)) { return jql }
+            if case .tilde? = peek() {
+                _ = advance()
+                guard let token = advance() else {
+                    throw QueryError("`\(field.rawValue) ~` needs something to look for.")
+                }
+                return .contains(.field(field), token.text)
             }
 
             let comparison: QueryComparison
@@ -401,6 +844,9 @@ public enum TaskQueryParser {
                 throw QueryError("`\(word)` is missing the value to compare against.")
             }
 
+            if isJQL {
+                return .comparison(field, comparison, try value(valueToken.text, for: .field(field)))
+            }
             return .comparison(field, comparison, try parseValue(valueToken.text, for: field, word: word))
         }
 

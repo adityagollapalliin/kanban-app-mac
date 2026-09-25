@@ -71,6 +71,29 @@ public struct Project: Sendable, Equatable, Identifiable, Codable {
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
+    /// Reads a project from an archive, including one written before some of
+    /// these properties existed.
+    ///
+    /// Hand-written for the same reason `BoardTask`'s is: a synthesised
+    /// decoder demands every key, so adding one non-optional property makes
+    /// every file anybody exported unreadable. `enforcesWorkflow`, `color` and
+    /// `icon` all arrived after the export format did.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        workspaceID = try container.decode(String.self, forKey: .workspaceID)
+        name = try container.decode(String.self, forKey: .name)
+        key = try container.decode(String.self, forKey: .key)
+        descriptionMarkdown = try container.decodeIfPresent(String.self, forKey: .descriptionMarkdown) ?? ""
+        nextTaskNumber = try container.decodeIfPresent(Int.self, forKey: .nextTaskNumber) ?? 1
+        archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        enforcesWorkflow = try container.decodeIfPresent(Bool.self, forKey: .enforcesWorkflow) ?? false
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
+        icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? ""
+        sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder) ?? 1_000
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+    }
+
 }
 
 public struct Status: Sendable, Equatable, Identifiable, Codable {
@@ -435,6 +458,54 @@ public struct BoardTask: Sendable, Equatable, Identifiable, Codable {
         self.updatedAt = updatedAt
         self.completedAt = completedAt
     }
+
+    /// Reads a card from an archive, including one written before some of
+    /// these properties existed.
+    ///
+    /// Written by hand rather than synthesised, because a synthesised decoder
+    /// demands every key: adding one non-optional property would make every
+    /// file anybody had already exported unreadable, with no error anybody
+    /// could act on. Every property added from here on gets a default here in
+    /// the same commit.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(String.self, forKey: .id)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        statusID = try container.decode(String.self, forKey: .statusID)
+        number = try container.decode(Int.self, forKey: .number)
+        type = try container.decodeIfPresent(TaskType.self, forKey: .type) ?? .task
+        // Schema 9: a project can define its own kinds, whose codes sit
+        // outside the enumeration. An older file has only the enumeration.
+        typeCode = try container.decodeIfPresent(Int.self, forKey: .typeCode) ?? type.rawValue
+        resolutionID = try container.decodeIfPresent(String.self, forKey: .resolutionID)
+        resolvedAt = try container.decodeIfPresent(Date.self, forKey: .resolvedAt)
+        environment = try container.decodeIfPresent(String.self, forKey: .environment) ?? ""
+        title = try container.decode(String.self, forKey: .title)
+        descriptionMarkdown = try container.decodeIfPresent(String.self, forKey: .descriptionMarkdown) ?? ""
+        assigneeID = try container.decodeIfPresent(String.self, forKey: .assigneeID)
+        priority = try container.decodeIfPresent(Priority.self, forKey: .priority) ?? .normal
+        parentID = try container.decodeIfPresent(String.self, forKey: .parentID)
+        epicID = try container.decodeIfPresent(String.self, forKey: .epicID)
+        versionID = try container.decodeIfPresent(String.self, forKey: .versionID)
+        sprintID = try container.decodeIfPresent(String.self, forKey: .sprintID)
+        listID = try container.decodeIfPresent(String.self, forKey: .listID)
+        startDate = try container.decodeIfPresent(Date.self, forKey: .startDate)
+        dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate)
+        estimate = try container.decodeIfPresent(Double.self, forKey: .estimate)
+        sortOrder = try container.decode(Double.self, forKey: .sortOrder)
+        trashed = try container.decodeIfPresent(Bool.self, forKey: .trashed) ?? false
+        trashedAt = try container.decodeIfPresent(Date.self, forKey: .trashedAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        statusChangedAt = try container.decodeIfPresent(Date.self, forKey: .statusChangedAt)
+        flagged = try container.decodeIfPresent(Bool.self, forKey: .flagged) ?? false
+        flagReason = try container.decodeIfPresent(String.self, forKey: .flagReason) ?? ""
+        isMilestone = try container.decodeIfPresent(Bool.self, forKey: .isMilestone) ?? false
+        snoozedUntil = try container.decodeIfPresent(Date.self, forKey: .snoozedUntil)
+        plannedFor = try container.decodeIfPresent(Date.self, forKey: .plannedFor)
+    }
 }
 
 /// A query kept by name.
@@ -447,6 +518,16 @@ public struct SavedView: Sendable, Equatable, Identifiable, Codable {
     public var projectID: String
     public var name: String
     public var query: String
+    /// Which language `query` is written in. Everything saved before schema 10
+    /// is `simple` by the migration's own default, and is never re-read under
+    /// any other rules.
+    public var syntax: QuerySyntax
+    /// Kept to hand in the sidebar.
+    public var starred: Bool
+    /// Which columns the navigator shows, one per line. Empty means the
+    /// default set, so a filter saved before the navigator existed opens
+    /// looking exactly as it always did.
+    public var columns: [String]
     public var sortOrder: Double
     public var createdAt: Date
 
@@ -455,6 +536,9 @@ public struct SavedView: Sendable, Equatable, Identifiable, Codable {
         projectID: String,
         name: String,
         query: String,
+        syntax: QuerySyntax = .simple,
+        starred: Bool = false,
+        columns: [String] = [],
         sortOrder: Double,
         createdAt: Date
     ) {
@@ -462,9 +546,39 @@ public struct SavedView: Sendable, Equatable, Identifiable, Codable {
         self.projectID = projectID
         self.name = name
         self.query = query
+        self.syntax = syntax
+        self.starred = starred
+        self.columns = columns
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
+
+    /// The stored form of the column list.
+    public static func storedColumns(_ columns: [String]) -> String {
+        columns.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    public static func columns(from stored: String) -> [String] {
+        stored.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+    /// An archive written before the syntax column has filters without one.
+    /// They read as `simple`, which is what they were — so an old backup
+    /// restored today behaves exactly as it did on the day it was taken.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        name = try container.decode(String.self, forKey: .name)
+        query = try container.decode(String.self, forKey: .query)
+        syntax = try container.decodeIfPresent(QuerySyntax.self, forKey: .syntax) ?? .simple
+        starred = try container.decodeIfPresent(Bool.self, forKey: .starred) ?? false
+        columns = try container.decodeIfPresent([String].self, forKey: .columns) ?? []
+        sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder) ?? 1_000
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+    }
+
 }
 
 /// How far through a card's checklist it is.

@@ -235,6 +235,9 @@ extension SavedView {
             projectID: try row.requiredString("project_id"),
             name: try row.requiredString("name"),
             query: try row.requiredString("query"),
+            syntax: QuerySyntax.named(row.string("syntax")),
+            starred: row.bool("starred") ?? false,
+            columns: SavedView.columns(from: row.string("columns") ?? ""),
             sortOrder: try row.requiredDouble("sort_order"),
             createdAt: try row.requiredDate("created_at")
         )

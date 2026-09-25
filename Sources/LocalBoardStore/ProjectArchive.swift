@@ -37,6 +37,11 @@ public struct ProjectArchive: Codable, Sendable, Equatable {
     /// Which labels sit on which card, by the ids used elsewhere in the file.
     public var taskLabels: [TaskLabelPair] = []
     public var checklists: [ChecklistItem] = []
+    /// The project's saved filters, each carrying the language it is written
+    /// in. An archive written before schema 10 has none, and one written
+    /// before the syntax column has filters without it — both read as
+    /// `simple`, which is what they were.
+    public var savedViews: [SavedView] = []
 
     public struct TaskLabelPair: Codable, Sendable, Equatable {
         public let taskID: String
@@ -57,7 +62,8 @@ public struct ProjectArchive: Codable, Sendable, Equatable {
         people: [Person] = [],
         labels: [CardLabel] = [],
         taskLabels: [TaskLabelPair] = [],
-        checklists: [ChecklistItem] = []
+        checklists: [ChecklistItem] = [],
+        savedViews: [SavedView] = []
     ) {
         self.schemaVersion = schemaVersion
         self.exportedAt = exportedAt
@@ -68,6 +74,7 @@ public struct ProjectArchive: Codable, Sendable, Equatable {
         self.labels = labels
         self.taskLabels = taskLabels
         self.checklists = checklists
+        self.savedViews = savedViews
     }
 
     /// Written by hand rather than synthesised, because the synthesised one
@@ -84,6 +91,7 @@ public struct ProjectArchive: Codable, Sendable, Equatable {
         labels = try container.decodeIfPresent([CardLabel].self, forKey: .labels) ?? []
         taskLabels = try container.decodeIfPresent([TaskLabelPair].self, forKey: .taskLabels) ?? []
         checklists = try container.decodeIfPresent([ChecklistItem].self, forKey: .checklists) ?? []
+        savedViews = try container.decodeIfPresent([SavedView].self, forKey: .savedViews) ?? []
     }
 
     /// The encoder and decoder the format is defined by, so a file written by
@@ -176,6 +184,14 @@ extension ProjectArchive {
             [projectID]
         ).map(ChecklistItem.init(row:))
 
+        // Saved filters, each with the language it is written in. Without the
+        // syntax the import would have to guess, and guessing `jql` on a
+        // filter that means something else as text is exactly the silent
+        // change of meaning the column exists to prevent.
+        let savedViews = try database.query(
+            "SELECT * FROM saved_view WHERE project_id = ? ORDER BY sort_order;", [projectID]
+        ).map(SavedView.init(row:))
+
         return ProjectArchive(
             schemaVersion: Migration.latestVersion,
             exportedAt: now,
@@ -185,7 +201,8 @@ extension ProjectArchive {
             people: people,
             labels: labels,
             taskLabels: pairs.filter { taskIDs.contains($0.taskID) },
-            checklists: checklists.filter { taskIDs.contains($0.taskID) }
+            checklists: checklists.filter { taskIDs.contains($0.taskID) },
+            savedViews: savedViews
         )
     }
 }
@@ -289,6 +306,7 @@ extension ProjectArchive {
                 listID: listID, database: database, now: now
             )
             try restoreAttachments(taskIDs: taskIDs, labelIDs: labelIDs, database: database)
+            try restoreSavedViews(projectID: projectID, database: database, now: now)
 
             guard let row = try database.queryOne("SELECT * FROM project WHERE id = ?;", [projectID]) else {
                 throw LocalBoardError.databaseQueryFailed(detail: "The imported project was not written.")
@@ -465,6 +483,27 @@ extension ProjectArchive {
             )
         }
         return mapping
+    }
+
+    /// Saved filters come back in the language they were written in.
+    ///
+    /// An archive from before that was recorded has no syntax on its filters,
+    /// and `SavedView`'s decoder reads that as `simple` — which is what they
+    /// were, so an old backup restored today behaves exactly as it did on the
+    /// day it was taken.
+    private func restoreSavedViews(projectID: String, database: Database, now: Date) throws {
+        for (index, view) in savedViews.enumerated() {
+            try database.execute(
+                """
+                INSERT INTO saved_view (id, project_id, name, query, syntax, starred, columns,
+                                        sort_order, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                [UUID().uuidString, projectID, view.name, view.query, view.syntax.rawValue,
+                 view.starred ? 1 : 0, SavedView.storedColumns(view.columns),
+                 Double(index + 1) * SortOrder.step, now]
+            )
+        }
     }
 
     private func restoreAttachments(
