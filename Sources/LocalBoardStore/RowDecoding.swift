@@ -53,6 +53,15 @@ extension Row {
         }
         return value
     }
+
+    /// The same, where the column may be NULL or hold something this build
+    /// does not know — both of which read as "no choice made" rather than as
+    /// a failure, because these columns all have a default behaviour.
+    func enumValue<E: RawRepresentable>(_ column: String, _ type: E.Type) -> E?
+    where E.RawValue == Int {
+        guard let raw = int(column) else { return nil }
+        return E(rawValue: Int(raw))
+    }
 }
 
 extension Workspace {
@@ -339,6 +348,7 @@ extension WorkLogEntry {
             minutes: try row.requiredInt("minutes"),
             note: row.string("note") ?? "",
             workedOn: try row.requiredDate("worked_on"),
+            billable: row.bool("billable") ?? false,
             createdAt: try row.requiredDate("created_at")
         )
     }
@@ -352,7 +362,84 @@ extension CustomField {
             name: try row.requiredString("name"),
             kind: try row.requiredEnum("kind", CustomFieldKind.self),
             options: CustomField.options(from: row.string("options") ?? ""),
+            currency: row.string("currency") ?? "USD",
+            progressMode: row.enumValue("progress_mode", ProgressMode.self) ?? .manual,
+            targetListID: row.string("target_list_id"),
+            formula: row.string("formula") ?? "",
+            rollupSource: row.enumValue("rollup_source", RollupSource.self) ?? .subtasks,
+            rollupLinkID: row.string("rollup_link_id"),
+            rollupFieldID: row.string("rollup_field_id"),
+            rollupFunction: row.enumValue("rollup_function", RollupFunction.self) ?? .sum,
             sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Goal {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            folderID: row.string("folder_id"),
+            name: try row.requiredString("name"),
+            notes: row.string("notes") ?? "",
+            kind: row.enumValue("kind", GoalKind.self) ?? .number,
+            start: row.double("start_number") ?? 0,
+            target: row.double("target_number") ?? 1,
+            current: row.double("current_number") ?? 0,
+            currency: row.string("currency") ?? "USD",
+            query: row.string("query") ?? "",
+            listID: row.string("list_id"),
+            ownerID: row.string("owner_id"),
+            dueAt: row.date("due_at"),
+            completedAt: row.date("completed_at"),
+            archived: row.bool("archived") ?? false,
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at"),
+            updatedAt: try row.requiredDate("updated_at")
+        )
+    }
+}
+
+extension GoalFolder {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at")
+        )
+    }
+}
+
+extension Dashboard {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            projectID: try row.requiredString("project_id"),
+            name: try row.requiredString("name"),
+            sortOrder: try row.requiredDouble("sort_order"),
+            createdAt: try row.requiredDate("created_at"),
+            updatedAt: try row.requiredDate("updated_at")
+        )
+    }
+}
+
+extension DashboardWidget {
+    init(row: Row) throws {
+        self.init(
+            id: try row.requiredString("id"),
+            dashboardID: try row.requiredString("dashboard_id"),
+            kind: try row.requiredEnum("kind", DashboardWidgetKind.self),
+            title: row.string("title") ?? "",
+            query: row.string("query") ?? "",
+            column: Int(row.int("grid_column") ?? 0),
+            row: Int(row.int("grid_row") ?? 0),
+            width: Int(row.int("width") ?? 1),
+            height: Int(row.int("height") ?? 1),
+            config: DashboardWidgetConfig.decoded(from: row.string("config") ?? ""),
             createdAt: try row.requiredDate("created_at")
         )
     }

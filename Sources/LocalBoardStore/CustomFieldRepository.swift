@@ -31,7 +31,15 @@ public struct CustomFieldRepository {
         inProject projectID: String,
         name: String,
         kind: CustomFieldKind,
-        options: [String] = []
+        options: [String] = [],
+        currency: String = "USD",
+        progressMode: ProgressMode = .manual,
+        targetListID: String? = nil,
+        formula: String = "",
+        rollupSource: RollupSource = .subtasks,
+        rollupLinkID: String? = nil,
+        rollupFieldID: String? = nil,
+        rollupFunction: RollupFunction = .sum
     ) throws -> CustomField {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -46,6 +54,29 @@ public struct CustomFieldRepository {
             )
         }
 
+        // A formula is checked before it is saved, not the first time somebody
+        // opens a card. The message then names the mistake while the person
+        // who made it is still looking at it.
+        if kind == .formula {
+            guard !formula.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw LocalBoardError.invalidInput(
+                    field: "formula", detail: "A formula field needs a formula."
+                )
+            }
+            do {
+                try FormulaEvaluator.validate(formula)
+            } catch let error as FormulaError {
+                throw LocalBoardError.invalidInput(field: "formula", detail: error.message)
+            }
+        }
+
+        if kind == .rollup, rollupFunction != .count, rollupFieldID == nil {
+            throw LocalBoardError.invalidInput(
+                field: "rollupField",
+                detail: "A rollup needs to know which field to \(rollupFunction.label.lowercased())."
+            )
+        }
+
         let id = UUID().uuidString
         let last = try database.queryOne(
             "SELECT MAX(sort_order) AS last FROM custom_field WHERE project_id = ?;", [projectID]
@@ -53,10 +84,19 @@ public struct CustomFieldRepository {
 
         try database.execute(
             """
-            INSERT INTO custom_field (id, project_id, name, kind, options, sort_order, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO custom_field (
+                id, project_id, name, kind, options, currency, progress_mode, target_list_id,
+                formula, rollup_source, rollup_link_id, rollup_field_id, rollup_function,
+                sort_order, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [id, projectID, trimmed, kind.rawValue, CustomField.stored(options),
+             currency, progressMode.rawValue, targetListID.map(SQLValue.text) ?? .null,
+             formula, rollupSource.rawValue,
+             rollupLinkID.map(SQLValue.text) ?? .null,
+             rollupFieldID.map(SQLValue.text) ?? .null,
+             rollupFunction.rawValue,
              SortOrder.between(last, nil), clock.now]
         )
 
@@ -91,6 +131,19 @@ public struct CustomFieldRepository {
         }
         let changed = try database.execute(
             "UPDATE custom_field SET options = ? WHERE id = ?;", [stored, fieldID]
+        )
+        guard changed > 0 else { throw LocalBoardError.notFound(entity: "field \(fieldID)") }
+    }
+
+    /// Changes a formula, refusing one that does not parse.
+    public func setFormula(_ formula: String, for fieldID: String) throws {
+        do {
+            try FormulaEvaluator.validate(formula)
+        } catch let error as FormulaError {
+            throw LocalBoardError.invalidInput(field: "formula", detail: error.message)
+        }
+        let changed = try database.execute(
+            "UPDATE custom_field SET formula = ? WHERE id = ?;", [formula, fieldID]
         )
         guard changed > 0 else { throw LocalBoardError.notFound(entity: "field \(fieldID)") }
     }
@@ -151,18 +204,21 @@ public struct CustomFieldRepository {
 
     /// Reads whichever column the field's kind uses. A row whose column is
     /// NULL is a value that was cleared, and comes back as nothing at all.
-    private static func value(from row: Row, kind: CustomFieldKind) -> CustomFieldValue? {
-        switch kind {
+    static func value(from row: Row, kind: CustomFieldKind) -> CustomFieldValue? {
+        // On the storage rather than the kind: money, a rating and a
+        // percentage are all numbers, and a relationship is the list of ids it
+        // points at. A computed field has nothing stored at all.
+        switch kind.storage {
         case .text:
-            return row.string("text_value").map(CustomFieldValue.text)
-        case .choice:
-            return row.string("text_value").map(CustomFieldValue.choice)
+            return row.string("text_value").map(kind == .choice ? CustomFieldValue.choice : CustomFieldValue.text)
         case .number:
             return row.double("number_value").map(CustomFieldValue.number)
         case .date:
             return row.date("date_value").map(CustomFieldValue.date)
-        case .checkbox:
+        case .boolean:
             return row.bool("bool_value").map(CustomFieldValue.checkbox)
+        case .computed:
+            return nil
         }
     }
 
@@ -189,7 +245,13 @@ public struct CustomFieldRepository {
               let kind = CustomFieldKind(rawValue: Int(raw)) else {
             throw LocalBoardError.notFound(entity: "field \(fieldID)")
         }
-        guard kind == value.kind else {
+        guard !kind.isComputed else {
+            throw LocalBoardError.invalidInput(
+                field: "value",
+                detail: "A \(kind.label.lowercased()) field works itself out; there is nothing to set."
+            )
+        }
+        guard kind.storage == value.storage else {
             throw LocalBoardError.invalidInput(
                 field: "value",
                 detail: "That field holds \(kind.label.lowercased()), not \(value.kind.label.lowercased())."

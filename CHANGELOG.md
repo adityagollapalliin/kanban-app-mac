@@ -6,6 +6,65 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 8
+
+### Milestone 8: goals, dashboards, fields & time
+- **Goals** with a target and a date: a number you keep yourself, an amount of
+  money, done-or-not, or cards finished — counted from a list or a query. The
+  bar is measured from a *starting* figure rather than from zero, so a goal to
+  bring open bugs down from forty to ten reads as no progress at forty rather
+  than as four hundred per cent, and says "22, down to 10" rather than the
+  nonsense of "22 of 10". Goals sit in folders; deleting a folder tidies it
+  away without taking the goals with it.
+- **Dashboards**: a grid of widgets, each one a saved query and a way of
+  drawing it — a count, a breakdown by status, priority or assignee, a task
+  list, workload, time tracked, a goal's bar, a note, a cumulative flow
+  diagram, a sprint burndown. Several dashboards per space, widgets dragged
+  to rearrange, and a new dashboard arrives with four widgets that already say
+  something rather than as an empty grid and a button.
+- **Six more kinds of field**: money (the currency belongs to the field, so a
+  column of figures can be summed), a one-to-five rating, a progress
+  percentage typed in or counted off the subtasks or checklist, a
+  relationship to other cards, a **formula**, and a **rollup**.
+- **Formulas** are arithmetic and date maths over the other fields — `{Due} -
+  {Start}`, `if({Due} < today(), days(today(), {Due}), 0)` — evaluated by a
+  small local expression language with no way to reach a file, a process or
+  the network. It is bounded in length, nesting and steps; a formula that ends
+  up reading itself is reported as a circular reference rather than running
+  until the stack gives out; and one that will not parse is refused when the
+  field is made, with the mistake named, rather than the first time somebody
+  opens a card.
+- **Rollups** gather from the subtasks or through a relationship field and
+  reduce with sum, average, count, minimum or maximum. An average divides by
+  the cards that actually answered, a count counts the cards including the
+  ones that left it blank, and nothing related at all is blank rather than
+  zero — because zero is a figure somebody might act on.
+- **Billable time**, per entry and per card, counted apart from the rest.
+  Existing entries default to not billable: hours logged before anybody was
+  asked the question are not hours anybody stands behind.
+- **A weekly timesheet** you can type into. A cell holds the day's total,
+  which may be several entries written at different moments, so typing more
+  adds an entry and typing less takes it off the most recent first — the notes
+  on the others survive, which is the part of a timesheet worth anything a
+  month later. `1:30`, `1.5`, `90m` and `1h 30m` all mean ninety minutes.
+- **Time in status**, computed from the status history: average, longest, how
+  many cards and how many visits — and where the visits outnumber the cards,
+  work is coming back. On each card too, because "why has this been open three
+  weeks" is asked one card at a time.
+
+### Fixed
+- A widget's width did nothing. `LazyVGrid` has no way to make one cell wider
+  than another, so every widget drew one cell wide whatever was set. The grid
+  now lays rows out itself, and a widget's height is honestly a box height
+  rather than a row span — neither of SwiftUI's grids can draw a cell across
+  two rows, and a stored layout the app cannot render is one that comes back
+  wrong.
+- Two time-log entries written in the same second — a timer stopped and a
+  correction typed straight after — left it to SQLite which one a timesheet
+  edit reduced. The order is now settled by insertion.
+- The timesheet and the time-in-status report drew centred in the window: a
+  scroll view hands its content only the width it asked for.
+
 ## Unreleased — schema 7
 
 ### Milestone 7: the day in front of you, and what is written beside it

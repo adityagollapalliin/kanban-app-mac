@@ -196,11 +196,35 @@ public final class BoardViewModel {
     let personalRepository: PersonalRepository
     let docRepository: DocRepository
     let whiteboardRepository: WhiteboardRepository
+    let goalRepository: GoalRepository
+    let dashboardRepository: DashboardRepository
+    let dashboardDataRepository: DashboardDataRepository
+    let computedFieldRepository: ComputedFieldRepository
+    let timeRepository: TimeRepository
 
     /// The project's own fields, and what every card on the board has put in
     /// them — gathered in one query rather than one per card.
     public private(set) var customFields: [CustomField] = []
     public private(set) var customValues: [String: [String: CustomFieldValue]] = [:]
+
+    /// The fields nobody fills in — formulas, rollups and progress counted off
+    /// the subtasks. Worked out on load rather than stored, so a figure on a
+    /// card is never one that was right an hour ago.
+    public internal(set) var computedValues: [String: [String: FormulaValue]] = [:]
+
+    /// Goals, the folders they sit in, and the dashboards over them.
+    public internal(set) var goals: [Goal] = []
+    public internal(set) var goalFolders: [GoalFolder] = []
+    public internal(set) var dashboards: [Dashboard] = []
+
+    /// Bumped whenever a dashboard's widgets or the time log change.
+    ///
+    /// The widgets and the timesheet are read on demand rather than held in
+    /// the model — a dashboard of a dozen widgets is a dozen queries, and
+    /// running them on every board reload would be paying for a screen nobody
+    /// is looking at. The counter is what tells the view to ask again.
+    public internal(set) var dashboardRevision = 0
+    public internal(set) var timeRevision = 0
 
     public private(set) var sprints: [Sprint] = []
     public private(set) var activeSprint: Sprint?
@@ -352,6 +376,11 @@ public final class BoardViewModel {
         self.personalRepository = PersonalRepository(database: database, clock: clock)
         self.docRepository = DocRepository(database: database, clock: clock)
         self.whiteboardRepository = WhiteboardRepository(database: database, clock: clock)
+        self.goalRepository = GoalRepository(database: database, clock: clock)
+        self.dashboardRepository = DashboardRepository(database: database, clock: clock)
+        self.dashboardDataRepository = DashboardDataRepository(database: database, clock: clock)
+        self.computedFieldRepository = ComputedFieldRepository(database: database, clock: clock)
+        self.timeRepository = TimeRepository(database: database, clock: clock)
     }
 
     /// The repositories the board's own screens reach for. Everything still
@@ -411,6 +440,10 @@ public final class BoardViewModel {
 
                 customFields = try customFieldRepository.fields(inProject: projectID)
                 customValues = try customFieldRepository.valuesByTask(inProject: projectID)
+                computedValues = try computedFieldRepository.values(inProject: projectID)
+                goals = try goalRepository.goals(inProject: projectID)
+                goalFolders = try goalRepository.folders(inProject: projectID)
+                dashboards = try dashboardRepository.dashboards(inProject: projectID)
                 sprints = try sprintRepository.sprints(inProject: projectID)
                 activeSprint = try sprintRepository.activeSprint(inProject: projectID)
                 automations = try automationRepository.automations(inProject: projectID)
@@ -1659,15 +1692,17 @@ extension BoardViewModel {
 
     // MARK: Work log
 
-    public func logWork(minutes: Int, note: String, on day: Date, taskID: String) {
+    public func logWork(minutes: Int, note: String, on day: Date, taskID: String, billable: Bool = false) {
         perform {
             try cardDetailRepository.logWork(
                 onTask: taskID,
                 minutes: minutes,
                 note: note,
                 personID: currentPersonID,
-                workedOn: day
+                workedOn: day,
+                billable: billable
             )
+            timeRevision += 1
             loadSelectionDetails()
         }
     }
@@ -1680,6 +1715,9 @@ extension BoardViewModel {
     }
 
     public var loggedMinutes: Int { workLog.reduce(0) { $0 + $1.minutes } }
+
+    /// Of which, billable.
+    public var billableMinutes: Int { workLog.filter(\.billable).reduce(0) { $0 + $1.minutes } }
 
     // MARK: Badges
 

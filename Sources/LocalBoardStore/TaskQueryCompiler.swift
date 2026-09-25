@@ -120,13 +120,21 @@ struct TaskQueryCompiler {
         let column: String
         let bound: SQLValue
 
-        switch kind {
-        case .text, .choice:
+        // A formula and a rollup are worked out when a card is drawn, not
+        // stored, so there is no column for SQL to compare. Saying so beats
+        // returning nothing and letting the user conclude their cards vanished.
+        if kind.isComputed {
+            throw QueryError("`\(name)` is worked out from other fields, so it can't be searched on.")
+        }
+
+        switch kind.storage {
+        case .text:
             column = "text_value"
             // Text matches loosely and a choice matches exactly: half a word
             // is a reasonable way to search prose and a poor way to pick from
-            // a list.
-            if kind == .text {
+            // a list. A relationship holds ids, and matching one loosely is
+            // how "cards linked to this one" is asked for.
+            if kind != .choice {
                 parameters.append(.text(projectID))
                 parameters.append(.text(name))
                 parameters.append(.text("%" + Self.escapingLikeWildcards(raw) + "%"))
@@ -149,10 +157,14 @@ struct TaskQueryCompiler {
             column = "date_value"
             bound = .real(date.resolve(now: now, calendar: calendar).timeIntervalSince1970)
 
-        case .checkbox:
+        case .boolean:
             let ticked = ["yes", "true", "1", "on"].contains(raw.lowercased())
             column = "bool_value"
             bound = .integer(ticked ? 1 : 0)
+
+        case .computed:
+            // Refused above; the compiler cannot know that.
+            throw QueryError("`\(name)` can't be searched on.")
         }
 
         parameters.append(.text(projectID))

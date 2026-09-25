@@ -291,6 +291,7 @@ struct WorkLogSection: View {
     @State private var amount = ""
     @State private var note = ""
     @State private var day = Date()
+    @State private var billable = false
 
     var body: some View {
         Section("Time") {
@@ -301,6 +302,13 @@ struct WorkLogSection: View {
                         minutes: model.loggedMinutes, workedOn: .now, createdAt: .now
                     ).duration)
                     .monospacedDigit()
+                }
+                if model.billableMinutes > 0 {
+                    LabeledContent("Billable") {
+                        Text(DurationFormat.short(model.billableMinutes))
+                            .monospacedDigit()
+                            .foregroundStyle(.green)
+                    }
                 }
             }
 
@@ -320,6 +328,14 @@ struct WorkLogSection: View {
             }
 
             TextField("What you did (optional)", text: $note)
+
+            // Off by default: time logged before anybody was asked the
+            // question is not billable, and a tick nobody chose would put
+            // figures on an invoice that nobody stands behind.
+            Toggle("Billable", isOn: $billable)
+                .toggleStyle(.checkbox)
+
+            TimeInStatusSummarySection(task: task, model: model)
         }
     }
 
@@ -342,6 +358,13 @@ struct WorkLogSection: View {
 
             Spacer(minLength: 0)
 
+            if entry.billable {
+                Image(systemName: "dollarsign.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .help("Billable")
+            }
+
             if let person = model.person(id: entry.personID) {
                 Text(CardAppearance.initials(of: person.name))
                     .font(.caption2)
@@ -350,6 +373,10 @@ struct WorkLogSection: View {
             }
         }
         .contextMenu {
+            Button(entry.billable ? "Not billable" : "Billable") {
+                model.setBillable(!entry.billable, entry: entry.id)
+            }
+            Divider()
             Button("Delete", systemImage: "trash", role: .destructive) {
                 model.deleteWorkLog(entry.id)
             }
@@ -358,7 +385,7 @@ struct WorkLogSection: View {
 
     private func log() {
         guard let minutes = WorkLogSection.minutes(from: amount) else { return }
-        model.logWork(minutes: minutes, note: note, on: day, taskID: task.id)
+        model.logWork(minutes: minutes, note: note, on: day, taskID: task.id, billable: billable)
         amount = ""
         note = ""
     }
@@ -404,5 +431,44 @@ struct WorkLogSection: View {
 
         let rounded = Int(total.rounded())
         return matched && rounded > 0 ? rounded : nil
+    }
+}
+
+
+/// How long this card has sat in each column.
+///
+/// On the card rather than only in the report, because the question "why has
+/// this been open for three weeks" is asked about one card at a time.
+struct TimeInStatusSummarySection: View {
+
+    let task: BoardTask
+    let model: BoardViewModel
+
+    private var report: [TimeInStatus] { model.timeInStatus(forTask: task.id) }
+
+    var body: some View {
+        let report = report
+        if report.count > 1 {
+            DisclosureGroup("Time in each column") {
+                ForEach(report) { entry in
+                    HStack {
+                        Text(model.statusName(id: entry.statusID))
+                            .font(.caption)
+                        if entry.visits > 1 {
+                            // Two visits to the same column is work coming
+                            // back, which the total alone would hide.
+                            Text("×\(entry.visits)")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .help("Came back here \(entry.visits) times")
+                        }
+                        Spacer()
+                        Text(entry.description)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
     }
 }

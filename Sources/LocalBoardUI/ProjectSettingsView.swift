@@ -35,6 +35,56 @@ private struct CustomFieldsPane: View {
     @State private var name = ""
     @State private var kind: CustomFieldKind = .text
     @State private var options = ""
+    @State private var currency = "USD"
+    @State private var progressMode: ProgressMode = .manual
+    @State private var targetListID: String?
+    @State private var formula = ""
+    @State private var rollupSource: RollupSource = .subtasks
+    @State private var rollupLinkID: String?
+    @State private var rollupFieldID: String?
+    @State private var rollupFunction: RollupFunction = .sum
+
+    /// The fields a rollup can read. A computed field is left out: rolling up
+    /// something that is itself worked out from the cards being rolled up is a
+    /// question with no bottom to it.
+    private var rollupTargets: [CustomField] {
+        model.customFields.filter { $0.kind.storage == .number || $0.kind == .checkbox }
+    }
+
+    private var relationshipFields: [CustomField] {
+        model.customFields.filter { $0.kind == .relationship }
+    }
+
+    /// Whether what has been typed could actually be saved.
+    private var canAdd: Bool {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        switch kind {
+        case .choice:
+            return !options.trimmingCharacters(in: .whitespaces).isEmpty
+        case .formula:
+            return (try? FormulaEvaluator.validate(formula)) != nil
+                && !formula.trimmingCharacters(in: .whitespaces).isEmpty
+        case .rollup:
+            if rollupSource == .relationship && rollupLinkID == nil { return false }
+            return rollupFunction == .count || rollupFieldID != nil
+        default:
+            return true
+        }
+    }
+
+    /// What is wrong with the formula, while it is being typed.
+    private var formulaProblem: String? {
+        let trimmed = formula.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            try FormulaEvaluator.validate(trimmed)
+            return nil
+        } catch let error as FormulaError {
+            return error.message
+        } catch {
+            return error.localizedDescription
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -90,19 +140,19 @@ private struct CustomFieldsPane: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                Button("Add") {
-                    model.createCustomField(
-                        named: name,
-                        kind: kind,
-                        options: options.split(separator: ",").map {
-                            $0.trimmingCharacters(in: .whitespaces)
-                        }
-                    )
-                    name = ""
-                    options = ""
+                if kind == .money {
+                    TextField("Currency", text: $currency)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
                 }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("Add", action: add).disabled(!canAdd)
             }
+
+            // The kinds that need more than a name and a word get their own
+            // row, rather than a dialog that hides what is being set.
+            settings
+
 
             // Said here rather than discovered later: a field's kind decides
             // which column its values live in, so it cannot move afterwards.
@@ -111,6 +161,106 @@ private struct CustomFieldsPane: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(16)
+    }
+
+    @ViewBuilder
+    private var settings: some View {
+        switch kind {
+        case .progress:
+            Picker("Counted", selection: $progressMode) {
+                ForEach(ProgressMode.allCases, id: \.self) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+
+        case .relationship:
+            Picker("Links to cards in", selection: $targetListID) {
+                Text("Anywhere in the space").tag(String?.none)
+                ForEach(model.lists) { list in
+                    Text(list.name).tag(String?.some(list.id))
+                }
+            }
+
+        case .formula:
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Formula", text: $formula, prompt: Text("{Due} - {Start}"))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout.monospaced())
+
+                if let problem = formulaProblem {
+                    Label(problem, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Arithmetic over the other fields. `{Name}` reads a field; `Due`, `Start`, `Created`, `Estimate`, `Logged` and `Priority` are built in. `if`, `days`, `today`, `round`, `concat` and `coalesce` are available.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+        case .rollup:
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Gather from", selection: $rollupSource) {
+                    ForEach(RollupSource.allCases, id: \.self) { source in
+                        Text(source.label).tag(source)
+                    }
+                }
+
+                if rollupSource == .relationship {
+                    Picker("Through", selection: $rollupLinkID) {
+                        Text("Pick a relationship field").tag(String?.none)
+                        ForEach(relationshipFields) { field in
+                            Text(field.name).tag(String?.some(field.id))
+                        }
+                    }
+                    .disabled(relationshipFields.isEmpty)
+                    if relationshipFields.isEmpty {
+                        Text("Make a relationship field first — a rollup needs to know which cards to gather from.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Picker("Work out the", selection: $rollupFunction) {
+                    ForEach(RollupFunction.allCases, id: \.self) { function in
+                        Text(function.label).tag(function)
+                    }
+                }
+
+                if rollupFunction != .count {
+                    Picker("Of field", selection: $rollupFieldID) {
+                        Text("Pick a field").tag(String?.none)
+                        ForEach(rollupTargets) { field in
+                            Text(field.name).tag(String?.some(field.id))
+                        }
+                    }
+                    .disabled(rollupTargets.isEmpty)
+                }
+            }
+
+        default:
+            EmptyView()
+        }
+    }
+
+    private func add() {
+        model.createCustomField(
+            named: name,
+            kind: kind,
+            options: options.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) },
+            currency: currency,
+            progressMode: progressMode,
+            targetListID: targetListID,
+            formula: formula,
+            rollupSource: rollupSource,
+            rollupLinkID: rollupLinkID,
+            rollupFieldID: rollupFieldID,
+            rollupFunction: rollupFunction
+        )
+        name = ""
+        options = ""
+        formula = ""
     }
 }
 

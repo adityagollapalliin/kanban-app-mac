@@ -680,6 +680,10 @@ public struct WorkLogEntry: Sendable, Equatable, Identifiable, Codable {
     /// The day the work happened, which is often not the day it was written
     /// down — and only the first of those is any use in a report.
     public var workedOn: Date
+    /// Whether these minutes go on an invoice. Hours logged before anybody was
+    /// asked the question are not billable: guessing yes would put figures on
+    /// a timesheet nobody stands behind.
+    public var billable: Bool
     public var createdAt: Date
 
     public init(
@@ -689,6 +693,7 @@ public struct WorkLogEntry: Sendable, Equatable, Identifiable, Codable {
         minutes: Int,
         note: String = "",
         workedOn: Date,
+        billable: Bool = false,
         createdAt: Date
     ) {
         self.id = id
@@ -697,6 +702,7 @@ public struct WorkLogEntry: Sendable, Equatable, Identifiable, Codable {
         self.minutes = minutes
         self.note = note
         self.workedOn = workedOn
+        self.billable = billable
         self.createdAt = createdAt
     }
 
@@ -719,6 +725,23 @@ public struct CustomField: Sendable, Equatable, Identifiable, Codable {
     public let kind: CustomFieldKind
     /// The choices, for a `.choice` field. One per line.
     public var options: [String]
+    /// For `.money`: which currency the figures are in. It belongs to the
+    /// field rather than to each value, because a column of amounts in mixed
+    /// currencies cannot be summed.
+    public var currency: String
+    /// For `.progress`: whether the percentage is typed in or counted.
+    public var progressMode: ProgressMode
+    /// For `.relationship`: which list the other cards must come from. Nil
+    /// means anywhere in the space.
+    public var targetListID: String?
+    /// For `.formula`: the expression, as it was typed.
+    public var formula: String
+    /// For `.rollup`: where the rows come from, which relationship field
+    /// names them, which of their fields to read, and how to reduce it.
+    public var rollupSource: RollupSource
+    public var rollupLinkID: String?
+    public var rollupFieldID: String?
+    public var rollupFunction: RollupFunction
     public var sortOrder: Double
     public var createdAt: Date
 
@@ -728,6 +751,14 @@ public struct CustomField: Sendable, Equatable, Identifiable, Codable {
         name: String,
         kind: CustomFieldKind,
         options: [String] = [],
+        currency: String = "USD",
+        progressMode: ProgressMode = .manual,
+        targetListID: String? = nil,
+        formula: String = "",
+        rollupSource: RollupSource = .subtasks,
+        rollupLinkID: String? = nil,
+        rollupFieldID: String? = nil,
+        rollupFunction: RollupFunction = .sum,
         sortOrder: Double,
         createdAt: Date
     ) {
@@ -736,6 +767,14 @@ public struct CustomField: Sendable, Equatable, Identifiable, Codable {
         self.name = name
         self.kind = kind
         self.options = options
+        self.currency = currency
+        self.progressMode = progressMode
+        self.targetListID = targetListID
+        self.formula = formula
+        self.rollupSource = rollupSource
+        self.rollupLinkID = rollupLinkID
+        self.rollupFieldID = rollupFieldID
+        self.rollupFunction = rollupFunction
         self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
@@ -763,6 +802,11 @@ public enum CustomFieldValue: Sendable, Equatable, Hashable {
     case choice(String)
     case checkbox(Bool)
 
+    /// The kind whose column this value lives in.
+    ///
+    /// Several field kinds share one of these — money, a rating and a
+    /// percentage are all `.number` — so this answers "which column" rather
+    /// than "which field kind": see `CustomFieldKind.storage`.
     public var kind: CustomFieldKind {
         switch self {
         case .text: .text
@@ -772,6 +816,9 @@ public enum CustomFieldValue: Sendable, Equatable, Hashable {
         case .checkbox: .checkbox
         }
     }
+
+    /// The column this value belongs in.
+    public var storage: CustomFieldStorage { kind.storage }
 
     /// How it reads on a card, where there is only room for a few words.
     public func display(formatter: DateFormatter? = nil) -> String {

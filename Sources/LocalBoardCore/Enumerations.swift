@@ -38,6 +38,16 @@ public enum Priority: Int, Sendable, CaseIterable, Codable, Comparable {
     public static func < (lhs: Priority, rhs: Priority) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
+
+    public var label: String {
+        switch self {
+        case .lowest: "Lowest"
+        case .low: "Low"
+        case .normal: "Normal"
+        case .high: "High"
+        case .highest: "Highest"
+        }
+    }
 }
 
 /// What a column's work-in-progress limit counts.
@@ -238,6 +248,18 @@ public enum CustomFieldKind: Int, Sendable, CaseIterable, Codable {
     /// One of a fixed list the project defines.
     case choice = 3
     case checkbox = 4
+    /// A number with a currency attached to the field, not to each value.
+    case money = 5
+    /// One to five stars.
+    case rating = 6
+    /// Nought to a hundred, typed in or counted off the subtasks.
+    case progress = 7
+    /// Links to other cards.
+    case relationship = 8
+    /// Worked out from the other fields, never stored.
+    case formula = 9
+    /// Gathered from the cards this one is related to, never stored.
+    case rollup = 10
 
     public var label: String {
         switch self {
@@ -246,6 +268,12 @@ public enum CustomFieldKind: Int, Sendable, CaseIterable, Codable {
         case .date: "Date"
         case .choice: "Choice"
         case .checkbox: "Checkbox"
+        case .money: "Money"
+        case .rating: "Rating"
+        case .progress: "Progress"
+        case .relationship: "Relationship"
+        case .formula: "Formula"
+        case .rollup: "Rollup"
         }
     }
 
@@ -256,7 +284,126 @@ public enum CustomFieldKind: Int, Sendable, CaseIterable, Codable {
         case .date: "calendar"
         case .choice: "list.bullet"
         case .checkbox: "checkmark.square"
+        case .money: "dollarsign.circle"
+        case .rating: "star"
+        case .progress: "chart.bar.fill"
+        case .relationship: "link"
+        case .formula: "function"
+        case .rollup: "sum"
         }
+    }
+
+    /// Which column of `custom_field_value` holds it.
+    ///
+    /// Several kinds share a column — money, rating and progress are all
+    /// numbers — because the column is about how the value is stored and
+    /// compared, while the kind is about how it is shown and edited. Sorting
+    /// a money column has to put 9 before 10, and that is the column's job.
+    public var storage: CustomFieldStorage {
+        switch self {
+        case .text, .choice, .relationship: .text
+        case .number, .money, .rating, .progress: .number
+        case .date: .date
+        case .checkbox: .boolean
+        case .formula, .rollup: .computed
+        }
+    }
+
+    /// Whether a person types this in at all. A formula and a rollup are read
+    /// from elsewhere every time they are shown, so there is nothing to edit
+    /// and nothing to save.
+    public var isComputed: Bool { storage == .computed }
+}
+
+/// Where a field's values live, or that they do not.
+public enum CustomFieldStorage: Sendable, Equatable {
+    case text
+    case number
+    case date
+    case boolean
+    /// Worked out on read. Nothing is written to `custom_field_value`.
+    case computed
+}
+
+/// Where a rollup gathers its rows from.
+public enum RollupSource: Int, Sendable, CaseIterable, Codable {
+    /// The card's own subtasks.
+    case subtasks = 0
+    /// The cards named by one of this card's relationship fields.
+    case relationship = 1
+
+    public var label: String {
+        switch self {
+        case .subtasks: "Subtasks"
+        case .relationship: "Related cards"
+        }
+    }
+}
+
+/// How a rollup reduces the values it gathered to one.
+public enum RollupFunction: Int, Sendable, CaseIterable, Codable {
+    case sum = 0
+    case average = 1
+    case count = 2
+    case minimum = 3
+    case maximum = 4
+
+    public var label: String {
+        switch self {
+        case .sum: "Sum"
+        case .average: "Average"
+        case .count: "Count"
+        case .minimum: "Minimum"
+        case .maximum: "Maximum"
+        }
+    }
+
+    /// Reduce the gathered rows.
+    ///
+    /// `values` is one entry per related card, with `nil` where that card has
+    /// no value for the field. The distinction matters: `count` counts the
+    /// cards, including the ones that left the field blank, while `average`
+    /// divides by the ones that actually answered — averaging in a blank as
+    /// zero would drag the figure down with data nobody entered.
+    ///
+    /// With no related cards at all the answer is `nil` rather than zero, so a
+    /// card with nothing rolled up reads as blank. `count` is the exception:
+    /// none is a perfectly good count of none.
+    public func reduce(_ values: [Double?]) -> Double? {
+        if self == .count { return Double(values.count) }
+        let present = values.compactMap { $0 }
+        guard !present.isEmpty else { return nil }
+        switch self {
+        case .sum: return present.reduce(0, +)
+        case .average: return present.reduce(0, +) / Double(present.count)
+        case .minimum: return present.min()
+        case .maximum: return present.max()
+        case .count: return Double(values.count)
+        }
+    }
+}
+
+/// Where a progress field's percentage comes from.
+public enum ProgressMode: Int, Sendable, CaseIterable, Codable {
+    case manual = 0
+    case subtasks = 1
+    case checklist = 2
+
+    public var label: String {
+        switch self {
+        case .manual: "Typed in"
+        case .subtasks: "From subtasks"
+        case .checklist: "From the checklist"
+        }
+    }
+
+    /// The percentage, given how many of the things are done.
+    ///
+    /// Nothing to count is `nil`, not 100%: a card with no subtasks has not
+    /// finished its subtasks, it has none.
+    public static func percentage(done: Int, of total: Int) -> Double? {
+        guard total > 0 else { return nil }
+        return (Double(done) / Double(total)) * 100
     }
 }
 

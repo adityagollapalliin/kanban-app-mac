@@ -42,7 +42,7 @@ struct BoardView: View {
     /// start, the releases it is going into, and what the history says about
     /// all of it — views of one project rather than a set of places.
     enum BoardScreen: String, CaseIterable, Identifiable {
-        case home, board, list, table, calendar, timeline, workload, box, mindMap, backlog, sprints, releases, activity, analytics, everything, reminders, notepad, docs, whiteboard
+        case home, board, list, table, calendar, timeline, workload, box, mindMap, backlog, sprints, releases, activity, analytics, dashboards, goals, timesheet, timeInStatus, everything, reminders, notepad, docs, whiteboard
         var id: String { rawValue }
 
         var label: String {
@@ -66,6 +66,10 @@ struct BoardView: View {
             case .sprints: "Sprints"
             case .releases: "Releases"
             case .analytics: "Analytics"
+            case .dashboards: "Dashboards"
+            case .goals: "Goals"
+            case .timesheet: "Timesheet"
+            case .timeInStatus: "Time in Status"
             }
         }
 
@@ -99,6 +103,10 @@ struct BoardView: View {
             case .sprints: "figure.run"
             case .releases: "shippingbox"
             case .analytics: "chart.xyaxis.line"
+            case .dashboards: "square.grid.2x2"
+            case .goals: "target"
+            case .timesheet: "tablecells.badge.ellipsis"
+            case .timeInStatus: "clock.arrow.2.circlepath"
             }
         }
     }
@@ -309,6 +317,14 @@ struct BoardView: View {
             ReleasesView(model: model)
         case .analytics:
             AnalyticsView(model: model)
+        case .dashboards:
+            DashboardsView(model: model)
+        case .goals:
+            GoalsView(model: model)
+        case .timesheet:
+            TimesheetView(model: model)
+        case .timeInStatus:
+            TimeInStatusView(model: model)
         }
     }
 

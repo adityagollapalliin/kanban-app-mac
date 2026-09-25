@@ -261,7 +261,8 @@ public struct CardDetailRepository {
         minutes: Int,
         note: String = "",
         personID: String? = nil,
-        workedOn: Date? = nil
+        workedOn: Date? = nil,
+        billable: Bool = false
     ) throws -> WorkLogEntry {
         guard minutes > 0 else {
             throw LocalBoardError.invalidInput(
@@ -273,10 +274,10 @@ public struct CardDetailRepository {
         let now = clock.now
         try database.execute(
             """
-            INSERT INTO work_log (id, task_id, person_id, minutes, note, worked_on, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO work_log (id, task_id, person_id, minutes, note, worked_on, billable, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """,
-            [id, taskID, personID.sqlValue, minutes, note, workedOn ?? now, now]
+            [id, taskID, personID.sqlValue, minutes, note, workedOn ?? now, billable ? 1 : 0, now]
         )
 
         guard let row = try database.queryOne("SELECT * FROM work_log WHERE id = ?;", [id]) else {

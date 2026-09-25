@@ -9,7 +9,7 @@ with `localboard seed --count 1000`.
 
 | Budget | Target | Measured at 1,013 cards |
 |---|---|---|
-| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **103 MB** board, **93 MB** list, **85 MB** table, **81 MB** my work, **77 MB** calendar, **96 MB** mind map, **71 MB** everything, **69 MB** activity, **62 MB** workload and whiteboard, **61 MB** box, **57 MB** docs, **56 MB** notepad (**67 MB** on a seven-card board) |
+| Idle memory | under 80 MB; hard ceiling 150 MB at 1,000 cards | **123 MB** timesheet, **106 MB** board, **93 MB** list, **85 MB** table, **81 MB** my work and dashboards, **77 MB** calendar, **96 MB** mind map, **71 MB** everything, **69 MB** activity, **66 MB** time in status, **64 MB** goals, **62 MB** workload and whiteboard, **61 MB** box, **57 MB** docs, **56 MB** notepad (**67 MB** on a seven-card board) |
 | Idle CPU | ~0%, no polling | **0.0%** |
 | Launch | under 1 second to usable UI | **~150 ms** to process, UI immediately after |
 
@@ -41,11 +41,29 @@ Milestone 7, whose Unscheduled section held nine hundred cards and cost
 **361 MB**; each section now shows twenty and offers the rest, which is
 **81 MB**.
 
-The lesson worth keeping, now four times over: **a nested lazy container is
-not lazy, and a container with no scrolling region of its own cannot be lazy
-at all.** No test can tell you either. Only measuring with the view on screen
+The lesson worth keeping, now five times over: **a nested lazy container is
+not lazy, a container with no scrolling region of its own cannot be lazy at
+all, and `Grid` is not lazy in the first place.** No test can tell you either. Only measuring with the view on screen
 can — which is why every screen in this table was measured that way, one at a
 time, rather than inferred from the board's number.
+
+### A fifth instance, in Milestone 8
+
+The **weekly timesheet** was drawn with SwiftUI's `Grid`, for the column
+alignment. A `Grid` is never lazy: it builds every row the moment it is asked
+to, and it was sitting inside a scroll view with nothing to bound it. A week
+in which sixty cards had been worked on cost **144 MB** — within sight of the
+ceiling for sixty rows, and a team logging against three hundred cards would
+have gone straight through it.
+
+It is now a `LazyVStack` of rows whose columns line up because each is a fixed
+width — which is what a timesheet's columns are anyway: **144 MB → 123 MB**,
+and the cost no longer grows with the week.
+
+That fix also settled a second fault the measurement did not show. The card
+column had a *minimum* width rather than a fixed one, so it grew to fit the
+longest title **in its own row** and every row's days sat somewhere different.
+Only looking at it showed that.
 
 The same rule caught a third case in Milestone 6: the **mind map** built every
 node at once and cost **297 MB** at a thousand cards. A map has no scrolling
