@@ -84,6 +84,7 @@ func printUsage() {
           --move-to "<column>"           Where cards go when removing a column
           --off                          Take a label off, or clear a flag
           --all                          Include trashed cards in list and export
+          --syntax <simple|jql>          Which filter language --query is in (default simple)
           --count <n>                    How many extra cards `seed` should add
 
         QUERY LANGUAGE

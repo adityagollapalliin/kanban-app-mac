@@ -222,4 +222,67 @@ extension BoardViewModel {
             reloadSnapshot()
         }
     }
+
+    // MARK: - Saved filters and their language
+
+    public var starredViews: [SavedView] { savedViews.filter(\.starred) }
+
+    public func setStarred(_ starred: Bool, for viewID: String) {
+        perform {
+            try savedViewRepository.setStarred(starred, for: viewID)
+            reloadSnapshot()
+        }
+    }
+
+    public func setColumns(_ columns: [String], for viewID: String) {
+        perform {
+            try savedViewRepository.setColumns(columns, for: viewID)
+            reloadSnapshot()
+        }
+    }
+
+    /// What converting a filter would do — asked before anything is saved.
+    public func previewConversion(_ viewID: String, to syntax: QuerySyntax) -> SavedViewRepository.ConversionPreview? {
+        try? savedViewRepository.previewConversion(viewID, to: syntax)
+    }
+
+    public func convert(_ viewID: String, to syntax: QuerySyntax) {
+        perform {
+            try savedViewRepository.convert(viewID, to: syntax)
+            reloadSnapshot()
+        }
+    }
+
+    public func createSavedView(named name: String, query: String, syntax: QuerySyntax) {
+        guard let projectID = currentProjectID else { return }
+        perform {
+            try savedViewRepository.create(
+                inProject: projectID, name: name, query: query, syntax: syntax
+            )
+            reloadSnapshot()
+        }
+    }
+
+    /// The cards a saved filter matches, read in its own language.
+    public func tasks(matching view: SavedView) -> [BoardTask] {
+        guard let projectID = currentProjectID else { return [] }
+        return (try? taskRepository.tasks(
+            matching: view.query, inProject: projectID, syntax: view.syntax
+        )) ?? []
+    }
+
+    /// Checks a query as it is being typed, in the language it will be saved
+    /// in. Nil when it reads; the reason when it does not.
+    public func problem(with query: String, syntax: QuerySyntax) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            _ = try TaskQueryParser.parse(trimmed, syntax: syntax)
+            return nil
+        } catch let error as QueryError {
+            return error.message
+        } catch {
+            return error.localizedDescription
+        }
+    }
 }

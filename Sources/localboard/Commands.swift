@@ -91,6 +91,14 @@ func listCommand(_ arguments: Arguments, database: Database) -> Int32 {
         var rows: [[String]] = []
 
         var query = arguments.option("query")
+
+        // A query typed at the CLI is basic unless it says otherwise, exactly
+        // as a filter typed into the app's search field is.
+        var syntax = QuerySyntax.named(arguments.option("syntax"))
+        if let raw = arguments.option("syntax"), QuerySyntax(rawValue: raw.lowercased()) == nil {
+            throw CLIError("`--syntax` takes \(QuerySyntax.allCases.map(\.rawValue).joined(separator: " or ")).")
+        }
+
         if let viewName = arguments.option("view") {
             guard let view = try SavedViewRepository(database: database)
                 .views(inProject: project.id)
@@ -99,11 +107,14 @@ func listCommand(_ arguments: Arguments, database: Database) -> Int32 {
                 throw CLIError("no view called `\(viewName)`. See them with `localboard views`.")
             }
             query = view.query
+            // A saved filter is read in the language it was written in, not
+            // whatever the command line happens to say.
+            syntax = view.syntax
         }
 
         if let query {
             // The same language the app's search field speaks.
-            rows = try tasks.tasks(matching: query, inProject: project.id).map(row)
+            rows = try tasks.tasks(matching: query, inProject: project.id, syntax: syntax).map(row)
         } else {
             let wanted: [Status]
             if let name = arguments.option("status") {

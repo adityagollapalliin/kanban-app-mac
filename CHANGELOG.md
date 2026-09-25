@@ -6,6 +6,51 @@ The version numbers are the app's marketing version; the **schema** number
 beside them is the on-disk format, which moves independently. `localboard
 version` prints both.
 
+## Unreleased — schema 10
+
+### Milestone 8.5b: a second filter language, and a column saying which one
+- **The advanced language**: `ORDER BY`, `IN` / `NOT IN`, `IS EMPTY`, `~`, the
+  history operators `WAS` and `CHANGED FROM … TO … DURING`, and thirteen
+  functions — `currentUser()`, `now()`, `startOf`/`endOf` day, week and month,
+  `openSprints()`, `closedSprints()`, `releasedVersions()`,
+  `unreleasedVersions()` and `linkedIssues(KEY)`.
+- **Every stored query now says which language it is in**, defaulting to
+  basic. This is not tidiness: `ORDER BY due` already *compiled* in the basic
+  language, as a search for the words "order", "by" and "due". Giving those
+  words their new meanings would have changed what a saved filter returned.
+  A filter written before today is declared basic and is read by the basic
+  parser, so its meaning cannot change — the promise holds by construction.
+- **History questions are answered properly.** `status WAS "In Progress"` reads
+  `status_change`, which has recorded every move since schema 3 and was
+  backfilled to each card's creation, so it covers a card's whole life rather
+  than only since the feature arrived. No other field has ever been recorded,
+  and asking about one is refused rather than answered with silence.
+- **The issue navigator**: a filter, its results as a list, and one card beside
+  them. Filters can be starred, and given their own columns.
+- **Converting a filter is always deliberate**, and the sheet answers both
+  questions that matter before anything is saved: does it still parse, and does
+  it still match the same cards. A query can survive the first and fail the
+  second.
+- **`localboard list --syntax simple|jql`**, defaulting to basic. A saved
+  filter is always read in its own language, whatever the flag says.
+- The archive now carries saved filters, each with its syntax. One written
+  before the column reads as basic.
+
+### Fixed
+- **Every model the export format carries had a synthesised `Codable`**, so
+  adding one non-optional property made every previously exported archive
+  unreadable — with an error nobody could act on. Milestone 8.5a had just done
+  this to cards; projects had been broken since workflow enforcement arrived.
+  Both now decode by hand with defaults, and a test opens an archive spelled
+  the old way.
+- The navigator's query bar was drawn halfway down the window, and its table
+  sat in the floor: a safe-area inset on a split view lands in the middle of
+  it, and a split view given only a width lets its children settle against the
+  bottom. Both found by looking at it.
+- The navigator's Title column collapsed to an ellipsis — it was the column
+  that gave way once the others were satisfied, and the one nobody can read a
+  list without.
+
 ## Unreleased — schema 9
 
 ### Milestone 8.5a: the words a project uses for its own work
