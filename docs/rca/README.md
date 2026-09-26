@@ -25,6 +25,8 @@ Each file follows the same shape:
 | [query-language-collisions.md](query-language-collisions.md) | Extending a grammar in place changes stored meaning | 1 (6 affected strings) | **High** — saved filters silently change results |
 | [ordering-and-arithmetic.md](ordering-and-arithmetic.md) | Comparing the wrong quantity | 3 | **Medium** — wrong rows, wrong figures |
 
+**Twenty-five instances across seven classes.**
+
 ## The one-line summary of all of it
 
 Five of the six classes share a shape: **something was true when the code was
