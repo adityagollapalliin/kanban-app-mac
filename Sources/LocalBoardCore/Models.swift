@@ -307,6 +307,25 @@ public struct Person: Sendable, Equatable, Identifiable, Codable {
     }
 
     public var hasCapacity: Bool { capacityAmount > 0 }
+    /// An archive written before a person had a colour, or a capacity, has no
+    /// key for them. Both default to what "nobody has said" means — the
+    /// palette's neutral, and a capacity of zero, which the workload view
+    /// draws as a bar with no ceiling.
+    ///
+    /// The fifth payload type to need this; see `BoardTask` for why the export
+    /// format's types cannot use a synthesised decoder.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? "graphite"
+        capacityAmount = try container.decodeIfPresent(Double.self, forKey: .capacityAmount) ?? 0
+        capacityUnit = try container.decodeIfPresent(CapacityUnit.self, forKey: .capacityUnit) ?? .hours
+        capacityPeriod = try container.decodeIfPresent(CapacityPeriod.self, forKey: .capacityPeriod) ?? .week
+        sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder) ?? 1_000
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+    }
+
 }
 
 public struct CardLabel: Sendable, Equatable, Identifiable, Codable {
@@ -321,6 +340,16 @@ public struct CardLabel: Sendable, Equatable, Identifiable, Codable {
         self.name = name
         self.color = color
     }
+    /// A label from an archive that predates label colours takes the default
+    /// rather than refusing to load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        name = try container.decode(String.self, forKey: .name)
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? "slate"
+    }
+
 }
 
 public struct ChecklistItem: Sendable, Equatable, Identifiable, Codable {

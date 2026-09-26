@@ -241,7 +241,9 @@ struct TaskDetailView: View {
     private var placementSection: some View {
         Section("Placement") {
             Picker("Status", selection: statusBinding) {
-                ForEach(model.statuses) { status in
+                // Only the moves whose conditions this card satisfies, plus
+                // the column it is already in.
+                ForEach(model.offeredStatuses(for: task)) { status in
                     Text(status.name).tag(status.id)
                 }
             }

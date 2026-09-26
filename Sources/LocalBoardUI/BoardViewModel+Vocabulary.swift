@@ -337,6 +337,33 @@ extension BoardViewModel {
         (try? transitionRuleRepository.isOffered(transition.id, forTask: task.id)) ?? true
     }
 
+    /// The columns this card may actually be moved to.
+    ///
+    /// A condition is different from a validator precisely in that it hides
+    /// the move rather than refusing it — so this is what every status menu
+    /// offers, instead of listing moves that will be turned down.
+    ///
+    /// Staying where it is is always on the list, or the picker would have no
+    /// way to show the card's own column.
+    ///
+    /// Where a transition has been described, its conditions apply whether or
+    /// not the project enforces its workflow: writing a condition is a
+    /// deliberate act, and enforcement is about *undescribed* moves.
+    public func offeredStatuses(for task: BoardTask) -> [Status] {
+        statuses.filter { status in
+            guard status.id != task.statusID else { return true }
+
+            guard let transition = transitions.first(where: {
+                $0.fromStatusID == task.statusID && $0.toStatusID == status.id
+            }) else {
+                // Nothing described for this pair: allowed unless the project
+                // has said only described moves are allowed.
+                return !enforcesWorkflow || transitions.isEmpty
+            }
+            return isOffered(transition, for: task)
+        }
+    }
+
     /// Which fields a kind of card insists on and has not got.
     public func missingRequired(for task: BoardTask) -> [String] {
         (try? fieldConfigRepository.missingRequired(forTask: task.id)) ?? []
@@ -361,5 +388,25 @@ extension BoardViewModel {
 
     public func fieldConfiguration(forType code: Int, field: FieldReference) -> FieldConfiguration? {
         fieldConfigs[code]?.first { $0.field == field }
+    }
+}
+
+/// A move waiting on its screen.
+///
+/// Carries where the card was going as well as what it is, because a drag
+/// specifies a position within the destination column and losing that would
+/// drop the card at the bottom after the sheet was filled in.
+public struct PendingTransition: Identifiable, Equatable, Sendable {
+    public let id = UUID()
+    public var taskID: String
+    public var statusID: String
+    public var before: String?
+    public var transition: WorkflowTransition
+
+    public init(taskID: String, statusID: String, before: String?, transition: WorkflowTransition) {
+        self.taskID = taskID
+        self.statusID = statusID
+        self.before = before
+        self.transition = transition
     }
 }

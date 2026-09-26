@@ -197,6 +197,16 @@ public struct TaskRepository {
             // drawn from the history would start a step late.
             try recordStatusChange(taskID: id, from: nil, to: statusID, at: now)
 
+            // Whatever this kind of card starts with, per the project's field
+            // configuration.
+            //
+            // Applied here rather than at any one caller, because a card is
+            // created from the board, the quick add, a template, the menu bar
+            // and the CLI — and defaults that only some of those honoured
+            // would be worse than none. Same reasoning as the vocabulary seed:
+            // find the one funnel and put it there.
+            try FieldConfigRepository(database: database, clock: clock).applyDefaults(toTask: id)
+
             let created = try task(id: id)
             try AutomationRepository(database: database, clock: clock)
                 .run(trigger: .created, task: created, statusID: statusID, depth: 0)

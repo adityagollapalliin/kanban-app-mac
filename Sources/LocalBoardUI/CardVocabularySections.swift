@@ -17,11 +17,34 @@ struct CardVocabularySection: View {
 
     var body: some View {
         Section("Classification") {
+            missing
             kind
             if isDone || task.resolutionID != nil { resolution }
             if !model.components.isEmpty { components }
             if !model.versions.isEmpty { versions }
             environment
+        }
+    }
+
+    /// What this kind of card is asked for and has not got.
+    ///
+    /// Shown on the card rather than refused at creation: a card is usually
+    /// made from a title alone and filled in afterwards, and refusing to
+    /// create one until every required field is answered would make the quick
+    /// add useless. This is the reminder that replaces that refusal.
+    @ViewBuilder
+    private var missing: some View {
+        let outstanding = model.missingRequired(for: task)
+        if !outstanding.isEmpty {
+            Label(
+                outstanding.count == 1
+                    ? "This kind of card needs \(outstanding[0])."
+                    : "This kind of card needs \(outstanding.dropLast().joined(separator: ", ")) and \(outstanding[outstanding.count - 1]).",
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

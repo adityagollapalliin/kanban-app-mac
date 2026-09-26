@@ -333,6 +333,29 @@ struct FieldConfigTests {
         #expect(try configs.configurations(inProject: ids.project, forType: 2).isEmpty)
     }
 
+    @Test("Defaults are applied by card creation itself, not by the caller")
+    func defaultsApplyOnCreate() throws {
+        // Every way a card comes into being has to honour them — the board,
+        // the quick add, a template, the menu bar, the CLI. Applying them at
+        // one caller would mean the others silently did not.
+        let (database, clock, ids) = try fixture()
+        let configs = FieldConfigRepository(database: database, clock: clock)
+        let tasks = TaskRepository(database: database, clock: clock)
+
+        try configs.set(
+            inProject: ids.project, forType: 3, field: .builtIn("environment"),
+            shown: true, required: false, defaultValue: "Staging"
+        )
+
+        let bug = try tasks.create(
+            inProject: ids.project, statusID: ids.toDo, title: "Crashes", type: .bug
+        )
+        #expect(try tasks.task(id: bug.id).environment == "Staging")
+
+        let chore = try tasks.create(inProject: ids.project, statusID: ids.toDo, title: "Tidy")
+        #expect(try tasks.task(id: chore.id).environment.isEmpty)
+    }
+
     @Test("Defaults are applied to a new card of that kind")
     func defaultsApply() throws {
         let (database, clock, ids) = try fixture()

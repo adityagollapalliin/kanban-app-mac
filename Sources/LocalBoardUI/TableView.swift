@@ -297,7 +297,10 @@ struct TableView: View {
 
         case .status:
             Menu(row.status) {
-                ForEach(model.statuses) { status in
+                // Only the moves this card may actually make. A condition
+                // hides a move rather than refusing it, which is the whole
+                // difference between a condition and a validator.
+                ForEach(model.task(id: row.id).map { model.offeredStatuses(for: $0) } ?? model.statuses) { status in
                     Button(status.name) { model.move(row.id, toStatus: status.id) }
                 }
             }

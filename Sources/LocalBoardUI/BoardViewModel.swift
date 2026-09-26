@@ -234,6 +234,14 @@ public final class BoardViewModel {
     public internal(set) var transitionRules: [String: [TransitionRule]] = [:]
     public internal(set) var fieldConfigs: [Int: [FieldConfiguration]] = [:]
 
+    /// A move that is waiting for the person to fill something in.
+    ///
+    /// A transition can be configured to stop and ask. Rather than each place
+    /// that moves a card knowing about that, `move` parks the move here and
+    /// the board presents it — so a drag, a menu and the card's own status
+    /// picker all behave the same way without any of them being told.
+    public internal(set) var pendingTransition: PendingTransition?
+
     /// Bumped whenever a dashboard's widgets or the time log change.
     ///
     /// The widgets and the timesheet are read on demand rather than held in
@@ -754,6 +762,55 @@ public final class BoardViewModel {
         // Dropping a card onto itself is a no-op, not a move to nowhere.
         guard taskID != before else { return }
 
+        // A transition that stops to ask parks itself here instead of going
+        // through. Nothing is written until the sheet is filled in and
+        // submitted, so cancelling leaves the card exactly where it was.
+        if let transition = transitionNeedingScreen(from: taskID, to: statusID) {
+            pendingTransition = PendingTransition(
+                taskID: taskID, statusID: statusID, before: before, transition: transition
+            )
+            return
+        }
+
+        performMove(taskID, toStatus: statusID, before: before)
+    }
+
+    /// The transition being taken, if it has a screen and the card has not
+    /// already answered everything on it.
+    private func transitionNeedingScreen(from taskID: String, to statusID: String) -> WorkflowTransition? {
+        guard let task = task(id: taskID), task.statusID != statusID else { return nil }
+        guard let transition = transitions.first(where: {
+            $0.fromStatusID == task.statusID && $0.toStatusID == statusID
+        }), transition.hasScreen else { return nil }
+
+        // Asking for something already filled in is a dialog nobody learns
+        // anything from, so a screen whose fields are all answered is skipped.
+        let unanswered = transition.screenFields.filter { !isFilledIn($0, on: taskID) }
+        return unanswered.isEmpty ? nil : transition
+    }
+
+    func isFilledIn(_ field: FieldReference, on taskID: String) -> Bool {
+        (try? transitionRuleRepository.isFilledIn(field, on: taskID)) ?? true
+    }
+
+    /// Fills in what the screen asked for, then makes the move.
+    public func completePendingTransition(_ values: [FieldReference: String]) {
+        guard let pending = pendingTransition else { return }
+        pendingTransition = nil
+
+        perform {
+            for (field, value) in values where !value.trimmingCharacters(in: .whitespaces).isEmpty {
+                try transitionRuleRepository.setField(field, to: value, on: pending.taskID)
+            }
+        }
+        performMove(pending.taskID, toStatus: pending.statusID, before: pending.before)
+    }
+
+    public func cancelPendingTransition() {
+        pendingTransition = nil
+    }
+
+    private func performMove(_ taskID: String, toStatus statusID: String, before: String?) {
         editing([taskID], "Move") {
             let after = try neighbourAbove(before: before, inStatus: statusID, moving: taskID)
             try taskRepository.move(taskID, toStatus: statusID, after: after, before: before)

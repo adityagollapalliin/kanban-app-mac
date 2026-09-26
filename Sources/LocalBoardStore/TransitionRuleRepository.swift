@@ -275,7 +275,7 @@ public struct TransitionRuleRepository {
         "epic": "epic_id",
     ]
 
-    func isFilledIn(_ field: FieldReference, on taskID: String) throws -> Bool {
+    public func isFilledIn(_ field: FieldReference, on taskID: String) throws -> Bool {
         switch field {
         case .builtIn("resolution"):
             return try database.count(
@@ -312,7 +312,7 @@ public struct TransitionRuleRepository {
     /// Dates are read the way the query language reads them, so `+7d` in a
     /// post-function means a week from the move rather than a literal string
     /// nobody can use.
-    func setField(_ field: FieldReference, to value: String, on taskID: String) throws {
+    public func setField(_ field: FieldReference, to value: String, on taskID: String) throws {
         switch field {
         case .builtIn("resolution"):
             try ComponentRepository(database: database, clock: clock)

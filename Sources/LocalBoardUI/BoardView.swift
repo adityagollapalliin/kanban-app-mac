@@ -206,6 +206,15 @@ struct BoardView: View {
         .sheet(isPresented: $isNamingView) { namingSheet }
         .sheet(isPresented: $isEditingSwimlanes) { SwimlaneEditor(model: model) }
         .sheet(isPresented: $isShowingProjectSettings) { ProjectSettingsView(model: model) }
+        // A move that stopped to ask. Presented here rather than at each place
+        // that moves a card, so a drag, a menu and the card's own picker all
+        // behave the same way.
+        .sheet(item: Binding(
+            get: { model.pendingTransition },
+            set: { if $0 == nil { model.cancelPendingTransition() } }
+        )) { pending in
+            TransitionScreenSheet(pending: pending, model: model)
+        }
         .sheet(isPresented: $isShowingPalette) {
             CommandPalette(model: model) { screen = $0 }
         }
