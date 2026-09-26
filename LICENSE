@@ -1,0 +1,266 @@
+MIT License
+
+Copyright (c) 2026 Aditya Gollapalli
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+
+                      SUPPLEMENTAL TERMS AND DISCLAIMERS
+
+These Supplemental Terms and Disclaimers (the "Supplemental Terms") are
+appended to, and form part of the same instrument as, the MIT License set out
+above (the "Licence"). The Supplemental Terms are additional to, and are not
+in substitution for or in derogation of, the warranty disclaimer and
+limitation of liability contained in the Licence. In the event of any conflict
+or inconsistency between the Licence and the Supplemental Terms with respect
+to the disclaimer of warranties, the limitation of liability, or the
+allocation of risk, the provision affording the greater protection to the
+Licensor shall prevail to the fullest extent permitted by applicable law.
+
+1. DEFINITIONS
+
+   1.1  "Licensor" means Aditya Gollapalli, being the copyright holder and
+        author of the Software, together with that person's heirs, executors,
+        administrators, successors and assigns.
+
+   1.2  "Recipient" means any person or entity who, by any means and for any
+        purpose whatsoever, obtains, accesses, downloads, clones, pulls,
+        forks, mirrors, copies, reproduces, replicates, compiles, builds,
+        installs, executes, incorporates, adapts, modifies, distributes,
+        sublicenses, or otherwise deals with the Software or any part,
+        portion, fragment, derivative, compilation or output thereof.
+
+   1.3  "Acquisition Event" means the moment at which any part, portion or
+        fragment of the Software first passes out of the Licensor's
+        repository, distribution point, or possession into the possession or
+        control of a Recipient, by whatever mechanism and whether or not
+        authorised, intended, or known to the Licensor.
+
+   1.4  "Losses" means any and all claims, demands, actions, suits,
+        proceedings, liabilities, obligations, judgments, awards, fines,
+        penalties, damages (whether direct, indirect, incidental, special,
+        consequential, exemplary, punitive or otherwise), losses of data,
+        losses of profit, losses of revenue, losses of goodwill, losses of
+        anticipated savings, business interruption, costs and expenses
+        (including legal fees and disbursements on a full indemnity basis),
+        howsoever arising and whether arising in contract, tort (including
+        negligence), breach of statutory duty, restitution or otherwise.
+
+2. DEVELOPMENTAL STATUS; NO REPRESENTATION OF FITNESS
+
+   2.1  THE SOFTWARE IS EXPERIMENTAL, INCOMPLETE, AND UNDER ACTIVE
+        DEVELOPMENT. It is expressly acknowledged and agreed by every
+        Recipient that the Software does not constitute, and has never been
+        represented by the Licensor to constitute, a finished, stable,
+        production-ready, production-grade, or commercially supportable
+        product, and that the Software does not meet and is not asserted to
+        meet any standard, criterion, benchmark, specification, certification
+        or threshold of production readiness, whether industry-recognised,
+        contractual, regulatory, statutory or otherwise.
+
+   2.2  The Software has not been subjected to any independent security
+        review, code audit, penetration test, formal verification, quality
+        assurance process, conformance assessment, or third-party evaluation
+        of any kind. The existence of automated tests, documentation,
+        commentary, root cause analyses, or apparent completeness within the
+        Software or its repository shall not be construed as a representation,
+        warranty, assurance or guarantee of correctness, reliability, safety,
+        security, fitness or suitability for any purpose whatsoever.
+
+   2.3  The Software may contain, and the Licensor affirmatively states that
+        it should be presumed to contain, defects, errors, bugs, regressions,
+        security vulnerabilities, data-destructive behaviours, incomplete
+        features, features that are configurable but inoperative, and
+        behaviours that differ materially from any description of the
+        Software. No obligation arises on the part of the Licensor to
+        identify, disclose, remediate, mitigate, patch, or provide notice of
+        any such matter.
+
+3. ASSUMPTION OF RISK
+
+   3.1  EACH RECIPIENT ACTS ENTIRELY AT THAT RECIPIENT'S OWN RISK, DISCRETION,
+        JUDGMENT, ELECTION AND EXPENSE. Every act of obtaining, downloading,
+        cloning, pulling, forking, mirroring, copying, reproducing,
+        replicating, compiling, building, installing, executing, deploying,
+        incorporating, adapting, modifying, distributing or otherwise dealing
+        with the Software is an exercise of the Recipient's own independent
+        volition and professional judgment, undertaken without reliance upon
+        any statement, representation, inducement, assurance or warranty of
+        the Licensor, whether made in the repository, in any documentation, in
+        any commit message, in any correspondence, or otherwise.
+
+   3.2  Each Recipient assumes sole, exclusive and entire responsibility for:
+        (a) determining the suitability of the Software for that Recipient's
+        purposes; (b) evaluating and testing the Software prior to any use;
+        (c) implementing and maintaining adequate backups, redundancy,
+        verification and disaster-recovery measures in respect of any data
+        processed, stored, transformed or touched by the Software; (d)
+        ensuring compliance with all applicable laws, regulations, standards
+        and obligations of any nature; and (e) all consequences of any kind
+        arising from the use or non-use of the Software.
+
+   3.3  Without limiting the generality of the foregoing, the Recipient
+        acknowledges that the Software stores data locally, performs
+        irreversible schema migrations, provides no synchronisation,
+        replication or remote backup of any kind, and applies no encryption
+        at rest, and that the risk of total and unrecoverable loss of data
+        rests wholly and exclusively with the Recipient.
+
+4. CESSATION OF LICENSOR INVOLVEMENT UPON ACQUISITION
+
+   4.1  UPON AND FROM THE ACQUISITION EVENT, THE LICENSOR SHALL HAVE NO
+        FURTHER PART, ROLE, INVOLVEMENT, INTEREST, CONTROL, OVERSIGHT,
+        SUPERVISION, RESPONSIBILITY, DUTY OR LIABILITY WHATSOEVER IN RESPECT
+        OF THE SOFTWARE OR ANY PART THEREOF, OR IN RESPECT OF ANY ACT,
+        OMISSION, EVENT, OUTCOME, CONSEQUENCE OR CIRCUMSTANCE OCCURRING
+        THEREAFTER.
+
+   4.2  The Licensor owes no duty of care, no fiduciary duty, no duty of
+        support, no duty of maintenance, no duty to update, no duty to
+        continue development, no duty to preserve availability, no duty of
+        notification, and no duty of disclosure to any Recipient or to any
+        third party, and no such duty shall be implied by conduct, by course
+        of dealing, by custom, by usage, by the provision of documentation or
+        commentary, or by any past or future act of the Licensor.
+
+   4.3  No act of the Licensor — including without limitation the publication
+        of the Software, the acceptance or rejection of any contribution, the
+        answering or non-answering of any question, the fixing or
+        non-fixing of any defect, or the making of any statement about the
+        Software — shall be construed as creating, reviving, assuming or
+        acknowledging any duty, liability or obligation whatsoever.
+
+5. EXCLUSION AND LIMITATION OF LIABILITY
+
+   5.1  TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL
+        NOT BE LIABLE TO ANY RECIPIENT OR TO ANY THIRD PARTY FOR ANY LOSSES
+        OF ANY NATURE WHATSOEVER, HOWSOEVER CAUSED AND ON ANY THEORY OF
+        LIABILITY, ARISING FROM, OUT OF, IN CONNECTION WITH, OR IN ANY WAY
+        RELATING TO THE SOFTWARE, ITS ACQUISITION, ITS USE, ITS NON-USE, ITS
+        FAILURE TO PERFORM, OR ANY DEALINGS WITH IT, EVEN IF THE LICENSOR HAS
+        BEEN ADVISED OF, KNEW OF, OR OUGHT REASONABLY TO HAVE FORESEEN THE
+        POSSIBILITY OF SUCH LOSSES.
+
+   5.2  The exclusion in clause 5.1 applies irrespective of whether the
+        Losses arise from any defect, error, omission, negligence, or failure
+        to warn on the part of the Licensor, and irrespective of whether the
+        Licensor was aware of any such matter.
+
+   5.3  Where applicable law does not permit the total exclusion of liability
+        provided for in clause 5.1, the Licensor's aggregate liability to any
+        and all Recipients, in respect of any and all matters arising from or
+        connected with the Software, shall be limited to the greater of (a)
+        the total amount actually paid by the Recipient to the Licensor for
+        the Software, which the parties acknowledge is nil; and (b) the sum of
+        one United States dollar (USD 1.00).
+
+   5.4  Nothing in these Supplemental Terms operates to exclude, restrict or
+        modify any liability which may not lawfully be excluded, restricted or
+        modified under applicable law, including without limitation liability
+        for death or personal injury caused by negligence, or for fraud or
+        fraudulent misrepresentation.
+
+6. INDEMNITY
+
+   6.1  Each Recipient shall indemnify, defend and hold harmless the Licensor
+        from and against any and all Losses suffered or incurred by the
+        Licensor arising out of or in connection with (a) that Recipient's
+        use, modification, distribution or other dealing with the Software;
+        (b) any breach by that Recipient of the Licence or of these
+        Supplemental Terms; or (c) any claim brought by a third party in
+        respect of any of the foregoing.
+
+7. UNSUITABILITY FOR HIGH-RISK AND REGULATED APPLICATIONS
+
+   7.1  THE SOFTWARE IS NOT DESIGNED, INTENDED, TESTED OR LICENSED FOR USE IN
+        ANY ENVIRONMENT OR APPLICATION IN WHICH FAILURE, MALFUNCTION, DEFECT,
+        INACCURACY OR LOSS OF DATA COULD REASONABLY BE EXPECTED TO RESULT IN
+        DEATH, PERSONAL INJURY, PHYSICAL DAMAGE, ENVIRONMENTAL HARM, FINANCIAL
+        LOSS, OR BREACH OF ANY LEGAL OR REGULATORY OBLIGATION, including
+        without limitation medical, clinical, life-support, aviation,
+        maritime, automotive, nuclear, industrial control, emergency response,
+        financial, accounting, payroll, tax, legal, safety-critical, or
+        security-critical applications, or any application subject to
+        statutory or regulatory record-keeping, retention, auditability,
+        integrity or data-protection requirements.
+
+   7.2  Any such use is undertaken entirely at the Recipient's own risk and in
+        direct contravention of the Licensor's express and stated intention,
+        and the Licensor disclaims all Losses arising therefrom absolutely.
+
+8. NO SUPPORT, NO SERVICE LEVEL, NO CONTINUITY
+
+   8.1  The Software is provided without any support, maintenance, training,
+        consultancy, service level, availability commitment, response time,
+        or continuity of any kind. The Licensor may modify, restructure,
+        rename, archive, make private, delete, abandon or otherwise cease to
+        publish the Software or its repository at any time, without notice,
+        without reason, and without liability.
+
+9. FORKS, DERIVATIVES AND REPUBLICATION
+
+   9.1  Any fork, derivative work, adaptation, translation, compilation,
+        redistribution or republication of the Software is the sole and
+        exclusive responsibility of the person or entity creating or
+        publishing it, and the Licensor bears no responsibility whatsoever for
+        any such work, for its contents, for its behaviour, or for any
+        representation made in respect of it.
+
+   9.2  No person may represent, state, imply or suggest that the Licensor
+        endorses, sponsors, approves, supports, maintains, certifies or is
+        otherwise associated with any fork, derivative work or distribution of
+        the Software, nor use the Licensor's name or the name of the Software
+        in a manner likely to convey any such impression.
+
+   9.3  Binary artefacts purporting to be the Software and obtained from any
+        source other than a build performed by the Recipient from source code
+        are of unverified provenance. The Licensor publishes no binary
+        releases and disclaims all Losses arising from the acquisition,
+        execution or distribution of any such artefact absolutely.
+
+10. GENERAL
+
+   10.1  Severability. If any provision of these Supplemental Terms is held by
+         a court or other competent authority to be invalid, unlawful or
+         unenforceable in whole or in part, that provision shall, to the
+         extent required, be deemed modified to the minimum extent necessary
+         to make it valid, lawful and enforceable, or, if such modification is
+         not possible, shall be deemed severed, and the validity and
+         enforceability of the remaining provisions shall not be affected.
+
+   10.2  No Waiver. No failure or delay by the Licensor in exercising any
+         right, power or remedy shall operate as a waiver of it, nor shall any
+         single or partial exercise preclude any further exercise.
+
+   10.3  No Third-Party Rights. Save as expressly provided, no person other
+         than the Licensor and a Recipient shall have any right to enforce any
+         provision of these Supplemental Terms.
+
+   10.4  Entire Agreement. The Licence together with these Supplemental Terms
+         constitutes the entire agreement between the Licensor and each
+         Recipient in respect of the Software, and supersedes all prior
+         statements, representations, understandings and communications,
+         whether written or oral.
+
+   10.5  Acceptance. Any Acquisition Event constitutes unqualified acceptance
+         of the Licence and of these Supplemental Terms by the Recipient. A
+         Recipient who does not accept them in their entirety must not obtain,
+         retain, use or deal with the Software in any manner, and must destroy
+         all copies in that Recipient's possession or control.

@@ -356,9 +356,35 @@ were caught later.
 
 ## Licence and warranty
 
-**No licence has been chosen yet.** In the absence of one, default copyright
-applies and you have no granted rights to use, copy, modify or redistribute
-this software. If you want to use it, ask.
+**MIT License, with supplemental terms.** See [LICENSE](LICENSE) for the full
+text. The MIT grant is unmodified, so the usual permissions apply: use, copy,
+modify, merge, publish, distribute, sublicense and sell, provided the copyright
+notice and permission notice travel with it.
 
-**There is no warranty of any kind.** This is unfinished, unaudited software
-provided as-is. You are responsible for your own data and your own backups.
+Appended to it is a set of **Supplemental Terms and Disclaimers** that do not
+restrict those permissions but do make the allocation of risk explicit. In
+plain English, and without replacing anything in the LICENSE file:
+
+- **This is unfinished software and is presumed to contain defects.** It has
+  had no security review, no audit and no independent evaluation. Automated
+  tests and documentation are not a warranty of anything.
+- **If you take it, you take it at your own discretion and your own risk.**
+  Downloading, cloning, pulling, forking, copying, replicating, building or
+  running it is your own decision, made on your own judgment.
+- **From the moment any part of it leaves this repository, the author has no
+  further part in what happens.** No duty of support, maintenance, updates,
+  notification or disclosure arises, and none is implied by anything said or
+  done.
+- **Liability is excluded to the fullest extent the law permits**, including
+  for data loss — which matters here, because the app stores everything
+  locally, migrates irreversibly, and neither encrypts nor backs up for you.
+- **It is not for high-risk or regulated use.** Medical, financial,
+  safety-critical, or anything with statutory record-keeping obligations.
+- **Forks and derivatives are their publisher's responsibility**, not the
+  author's, and must not imply endorsement.
+- **No binary releases are published.** Any binary you did not build yourself
+  is of unverified provenance.
+
+> The author is not a lawyer and this text is not legal advice. If anything
+> real depends on these terms, have a solicitor review them for your
+> jurisdiction.

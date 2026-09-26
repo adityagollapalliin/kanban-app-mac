@@ -75,7 +75,8 @@ That is a coherent end state, and largely where things already are. It needs
 only two things kept true:
 
 - **no binaries published anywhere**, so there is nothing for a user to run
-  without building; and
+  without building — a position the LICENSE now reinforces, by disclaiming
+  any artefact the recipient did not build themselves; and
 - **the README keeps saying so**, so nobody assumes a file found elsewhere is
   genuine.
 
@@ -85,9 +86,12 @@ Both hold today.
 
 Not technical blockers — decisions:
 
-1. **A licence.** None has been chosen, so default copyright applies and
-   nobody has the right to redistribute anything. Distribution without a
-   licence is incoherent.
+1. ~~**A licence.**~~ **Settled.** MIT, with appended Supplemental Terms that
+   disclaim warranty and liability, state the project's developmental status,
+   place the risk of acquisition on the recipient, and end the author's
+   involvement at the point any part of the Software leaves this repository.
+   See [LICENSE](LICENSE). Redistribution is now permitted on those terms —
+   which removes the legal blocker, but not the three below.
 2. **A security review.** The app has had none. Shipping unaudited software to
    strangers is a different proposition from running it yourself.
 3. **A support position.** No network means no auto-update: a shipped build can
